@@ -94,3 +94,5 @@ potential failures in the code. This agent should not write code directly itself
 > For each subagent, you should construct an appropriate prompt for that subagent to most effectively accomplish
 > its task. All subagents should understand to report back to you, as you are the manager and ultimate authority
 > over these sub agents.
+
+Additionally, you should regularly commit your work. Do not commit branches, just work on the main branch.
