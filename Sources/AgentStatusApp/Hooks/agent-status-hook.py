@@ -7,6 +7,8 @@ import socket
 import subprocess
 import sys
 
+_PROCESS_CHAIN = None
+
 
 def argument_value(name):
     try:
@@ -16,8 +18,12 @@ def argument_value(name):
         return None
 
 
-def process_ancestry():
-    names = []
+def process_chain():
+    global _PROCESS_CHAIN
+    if _PROCESS_CHAIN is not None:
+        return _PROCESS_CHAIN
+
+    entries = []
     pid = os.getppid()
     for _ in range(12):
         if pid <= 1:
@@ -33,11 +39,27 @@ def process_ancestry():
             parts = result.stdout.strip().split(None, 1)
             if len(parts) != 2:
                 break
+            entries.append((pid, parts[1].lower()))
             pid = int(parts[0])
-            names.append(parts[1].lower())
         except Exception:
             break
-    return names
+    _PROCESS_CHAIN = entries
+    return entries
+
+
+def process_ancestry():
+    return [command for _, command in process_chain()]
+
+
+def provider_process_id(provider):
+    marker = "claude" if provider == "claude" else "codex"
+    for pid, command in process_chain():
+        executable = os.path.basename(command.split(None, 1)[0]).lower()
+        if marker in executable:
+            return pid
+        if executable in ("node", "bun", "deno") and marker in command:
+            return pid
+    return None
 
 
 def provider_for(payload):
@@ -172,6 +194,7 @@ def main():
             "sessionID": session_id,
             "host": host_for(provider, payload),
             "activity": activity,
+            "sourceEvent": event_name,
         }
         name = first_string(
             payload,
@@ -179,6 +202,18 @@ def main():
         )
         if name:
             normalized["name"] = name
+        turn_id = first_string(payload, ("turn_id", "turnId"))
+        if turn_id:
+            normalized["turnID"] = turn_id
+        working_directory = first_string(
+            payload,
+            ("cwd", "working_directory", "workingDirectory"),
+        )
+        if working_directory:
+            normalized["workingDirectory"] = working_directory
+        process_id = provider_process_id(provider)
+        if process_id is not None:
+            normalized["processID"] = process_id
         send_event(normalized)
         # Codex Stop hooks parse successful stdout as a JSON hook result.
         if provider == "codex" and event_name.lower().replace("_", "") == "stop":

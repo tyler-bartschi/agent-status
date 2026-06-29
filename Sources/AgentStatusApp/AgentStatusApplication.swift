@@ -1,6 +1,7 @@
 import AppKit
 import AgentStatusCore
 import AgentStatusIntegration
+import Darwin
 import os
 
 @main
@@ -22,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let preferences = AppPreferences()
     private let store = SessionStore()
     private let eventServer = SessionEventServer()
+    private lazy var eventCoordinator = SessionEventCoordinator(store: store)
     private lazy var audioController = AudioController(preferences: preferences)
     private lazy var notchController = NotchPanelController(store: store)
     private lazy var hookSettings = HookSettingsModel(
@@ -32,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hookSettings: hookSettings
     )
     private var statusItem: NSStatusItem?
+    private var staleSessionTimer: Timer?
 
     private var bundledHookURL: URL {
         Bundle.module.url(forResource: "agent-status-hook", withExtension: "py")
@@ -47,10 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         notchController.start()
         installStatusItem()
+        startStaleSessionCleanup()
 
         do {
             try eventServer.start { [weak self] event in
-                self?.store.process(event)
+                self?.eventCoordinator.receive(event)
             }
         } catch {
             logger.error("Unable to start event server: \(error.localizedDescription, privacy: .public)")
@@ -58,6 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        staleSessionTimer?.invalidate()
+        staleSessionTimer = nil
+        eventCoordinator.cancelPendingEvents()
         eventServer.stop()
         notchController.stop()
     }
@@ -107,5 +114,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSource() {
         NSWorkspace.shared.open(AppPreferences.sourceURL)
+    }
+
+    private func startStaleSessionCleanup() {
+        staleSessionTimer = Timer.scheduledTimer(
+            withTimeInterval: 60,
+            repeats: true
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                _ = self?.store.pruneStaleWorkingSessions(
+                    inactiveFor: 30 * 60,
+                    isProcessAlive: Self.isProcessAlive
+                )
+            }
+        }
+        staleSessionTimer?.tolerance = 10
+    }
+
+    private static func isProcessAlive(_ processID: Int32) -> Bool {
+        guard processID > 0 else { return false }
+        if kill(processID, 0) == 0 {
+            return true
+        }
+        return errno == EPERM
     }
 }

@@ -7,6 +7,7 @@ import Foundation
 public final class SessionStore: ObservableObject {
     public typealias Sleep = @Sendable (Duration) async throws -> Void
     public typealias TransitionHandler = @MainActor (SessionTransition) -> Void
+    public typealias Now = () -> Date
 
     @Published public private(set) var sessions: [AgentSession] = []
     @Published public private(set) var displayState: AggregateDisplayState?
@@ -15,19 +16,26 @@ public final class SessionStore: ObservableObject {
 
     private let finishedDuration: Duration
     private let sleep: Sleep
+    private let now: Now
     private var expiryTasks: [String: Task<Void, Never>] = [:]
     private var lastEvents: [String: SessionEvent] = [:]
     private var revisions: [String: UInt64] = [:]
+    private var aliases: [String: String] = [:]
+    private var turnSessions: [TurnIdentity: String] = [:]
+    private var lastActivityDates: [String: Date] = [:]
+    private var processIDs: [String: Int32] = [:]
 
     public init(
         finishedDuration: Duration = .seconds(3),
         sleep: @escaping Sleep = { duration in
             try await Task.sleep(for: duration)
         },
+        now: @escaping Now = Date.init,
         onTransition: TransitionHandler? = nil
     ) {
         self.finishedDuration = finishedDuration
         self.sleep = sleep
+        self.now = now
         self.onTransition = onTransition
     }
 
@@ -39,29 +47,37 @@ public final class SessionStore: ObservableObject {
     /// immediately without a completion transition.
     @discardableResult
     public func process(_ event: SessionEvent) -> Bool {
-        guard lastEvents[event.sessionID] != event else {
+        let sessionID = canonicalSessionID(for: event)
+
+        guard lastEvents[sessionID] != event else {
             return false
         }
 
-        lastEvents[event.sessionID] = event
-        expiryTasks[event.sessionID]?.cancel()
-        expiryTasks[event.sessionID] = nil
+        lastEvents[sessionID] = event
+        lastActivityDates[sessionID] = now()
+        if let processID = event.processID {
+            processIDs[sessionID] = processID
+        }
+        expiryTasks[sessionID]?.cancel()
+        expiryTasks[sessionID] = nil
 
-        let previousSession = sessions.first { $0.sessionID == event.sessionID }
+        let previousSession = sessions.first { $0.sessionID == sessionID }
         let previousStatus = previousSession?.status
-        let revision = nextRevision(for: event.sessionID)
+        let revision = nextRevision(for: sessionID)
 
         guard event.activity != .idle else {
-            let changed = removeSession(id: event.sessionID)
+            let changed = removeSession(id: sessionID)
+            lastActivityDates[sessionID] = nil
+            processIDs[sessionID] = nil
             publishAggregate()
             return changed
         }
 
         let status = status(for: event.activity)
         let session = AgentSession(
-            sessionID: event.sessionID,
+            sessionID: sessionID,
             host: event.host,
-            name: event.name,
+            name: event.name ?? previousSession?.name,
             status: status,
             revision: revision
         )
@@ -91,6 +107,58 @@ public final class SessionStore: ObservableObject {
         sessions.first { $0.sessionID == id }
     }
 
+    public func session(matching event: SessionEvent) -> AgentSession? {
+        session(id: canonicalSessionID(for: event))
+    }
+
+    /// Removes a session from the display and clears its deduplication state.
+    /// A later provider event can therefore make the session appear again.
+    @discardableResult
+    public func forgetSession(id: String) -> Bool {
+        expiryTasks[id]?.cancel()
+        expiryTasks[id] = nil
+        lastEvents[id] = nil
+        lastActivityDates[id] = nil
+        processIDs[id] = nil
+        aliases = aliases.filter { $0.value != id }
+        turnSessions = turnSessions.filter { $0.value != id }
+
+        let changed = removeSession(id: id)
+        publishAggregate()
+        return changed
+    }
+
+    /// Removes stale Working sessions. CLI sessions are removed as soon as
+    /// their provider process exits. Desktop sessions (and CLI sessions with
+    /// no process metadata) are removed after the inactivity timeout.
+    @discardableResult
+    public func pruneStaleWorkingSessions(
+        inactiveFor timeout: TimeInterval,
+        isProcessAlive: (Int32) -> Bool
+    ) -> [String] {
+        precondition(timeout > 0)
+        let cutoff = now().addingTimeInterval(-timeout)
+        let staleIDs = sessions.compactMap { session -> String? in
+            guard session.status == .working else { return nil }
+
+            if session.host == .codexCLI || session.host == .claudeCLI,
+               let processID = processIDs[session.sessionID]
+            {
+                return isProcessAlive(processID) ? nil : session.sessionID
+            }
+
+            guard let lastActivity = lastActivityDates[session.sessionID] else {
+                return session.sessionID
+            }
+            return lastActivity <= cutoff ? session.sessionID : nil
+        }
+
+        for id in staleIDs {
+            forgetSession(id: id)
+        }
+        return staleIDs
+    }
+
     private func status(for activity: SessionEvent.Activity) -> SessionStatus {
         switch activity {
         case .working:
@@ -109,6 +177,30 @@ public final class SessionStore: ObservableObject {
         let next = (revisions[sessionID] ?? 0) &+ 1
         revisions[sessionID] = next
         return next
+    }
+
+    private func canonicalSessionID(for event: SessionEvent) -> String {
+        let aliasKey = "\(event.host.rawValue):\(event.sessionID)"
+        let existingAlias = aliases[aliasKey]
+
+        if let turnID = event.turnID {
+            let identity = TurnIdentity(host: event.host, turnID: turnID)
+            if let existing = turnSessions[identity] {
+                aliases[aliasKey] = existing
+                return existing
+            }
+            let canonicalID = existingAlias ?? event.sessionID
+            turnSessions[identity] = canonicalID
+            aliases[aliasKey] = canonicalID
+            return canonicalID
+        }
+
+        if let existingAlias {
+            return existingAlias
+        }
+
+        aliases[aliasKey] = event.sessionID
+        return event.sessionID
     }
 
     private func upsert(_ session: AgentSession) {
@@ -172,6 +264,13 @@ public final class SessionStore: ObservableObject {
 
         expiryTasks[id] = nil
         removeSession(id: id)
+        lastActivityDates[id] = nil
+        processIDs[id] = nil
         publishAggregate()
     }
+}
+
+private struct TurnIdentity: Hashable {
+    let host: HostApplication
+    let turnID: String
 }

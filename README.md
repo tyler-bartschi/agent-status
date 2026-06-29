@@ -8,8 +8,11 @@ Code sessions around the MacBook notch.
 - Green checkmark pop: Finished (shown for three seconds)
 
 The right-side number counts sessions in the currently displayed state. Click
-the notch surface to expand a list of all active sessions. When macOS Reduce
-Motion is enabled, each indicator uses a static equivalent.
+the notch surface to smoothly expand a list of all active sessions. Click
+outside the panel to close it, or use the forget button beside a session to
+clear a stale entry. A live forgotten session can reappear when it sends its
+next event. When macOS Reduce Motion is enabled, indicators and panel changes
+use static equivalents.
 
 ## Requirements
 
@@ -71,6 +74,10 @@ Open `/hooks` in Codex after installation and approve the Agent Status entries.
 
 The provider hook sends normalized status events only to an owner-only local
 Unix socket. Agent prompts and transcripts are not persisted by Agent Status.
+Events from the same provider turn are coalesced even if the provider reports
+multiple session identifiers. Exited CLI processes are cleaned up
+automatically; inactive Working entries without a dedicated process are
+removed after 30 minutes.
 
 ## Provider support
 

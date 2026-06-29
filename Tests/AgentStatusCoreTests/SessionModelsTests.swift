@@ -17,7 +17,7 @@ struct SessionModelsTests {
     }
 
     @Test func sessionEventCodableRoundTripIncludesAllActivitiesAndOptionalNames() throws {
-        let events = SessionEvent.Activity.allCases.enumerated().map { index, activity in
+        var events = SessionEvent.Activity.allCases.enumerated().map { index, activity in
             SessionEvent(
                 sessionID: "session-\(index)",
                 host: HostApplication.allCases[index % HostApplication.allCases.count],
@@ -25,6 +25,18 @@ struct SessionModelsTests {
                 activity: activity
             )
         }
+        events.append(
+            SessionEvent(
+                sessionID: "metadata",
+                host: .codexDesktop,
+                name: "Named",
+                activity: .working,
+                turnID: "turn-1",
+                workingDirectory: "/tmp/project",
+                processID: 42,
+                sourceEvent: "UserPromptSubmit"
+            )
+        )
 
         #expect(try roundTrip(events) == events)
     }

@@ -31,17 +31,29 @@ public struct SessionEvent: Codable, Equatable, Hashable, Sendable {
     public let host: HostApplication
     public let name: String?
     public let activity: Activity
+    public let turnID: String?
+    public let workingDirectory: String?
+    public let processID: Int32?
+    public let sourceEvent: String?
 
     public init(
         sessionID: String,
         host: HostApplication,
         name: String? = nil,
-        activity: Activity
+        activity: Activity,
+        turnID: String? = nil,
+        workingDirectory: String? = nil,
+        processID: Int32? = nil,
+        sourceEvent: String? = nil
     ) {
         self.sessionID = sessionID
         self.host = host
         self.name = name
         self.activity = activity
+        self.turnID = turnID
+        self.workingDirectory = workingDirectory
+        self.processID = processID
+        self.sourceEvent = sourceEvent
     }
 }
 

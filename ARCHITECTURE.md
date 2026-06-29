@@ -40,6 +40,7 @@ SessionEventServer
         v
 SessionStore (@MainActor)
   - per-session state and revision
+  - turn-based alias coalescing
   - Finished expiry
   - priority aggregation
         |
@@ -59,6 +60,8 @@ The displayed status is the highest-priority status currently present:
 The displayed count includes only sessions in that status. A Finished session
 is removed after three seconds unless a newer event changes its revision.
 Transition audio is emitted per session, not per aggregate display change.
+Ambiguous idle/question events are briefly debounced so a following completion
+event does not produce a transient Waiting state or tone.
 
 ## Provider integration
 
@@ -87,6 +90,10 @@ hit testing so transparent areas do not intercept clicks.
 Status symbols use Core Animation so repeating Working and Waiting motion runs
 on the compositor without SwiftUI timers. Finished uses a one-shot checkmark
 animation. All symbols provide static variants when Reduce Motion is enabled.
+The panel frame and list animate together when expanding or collapsing. Global
+and local mouse monitors collapse it on outside clicks. Expanded rows expose a
+manual forget action; provider events are allowed to recreate forgotten
+sessions.
 
 The menu-bar status item opens settings for launch-at-login, separate Waiting
 and Finished sound controls, volume, hook installation status, and the source
@@ -97,5 +104,8 @@ repository.
 - The socket is local, per-user, owner-only, and recreated on application
   launch when a stale socket is present.
 - Hooks are best-effort and never block the agent workflow on delivery failure.
+- CLI sessions are removed when their provider process exits. Working desktop
+  sessions and sessions without process metadata expire after 30 minutes
+  without a lifecycle event; Waiting sessions require input or manual removal.
 - Hook payloads and transcript formats are not persisted by the app.
 - There are no telemetry or update-service dependencies.

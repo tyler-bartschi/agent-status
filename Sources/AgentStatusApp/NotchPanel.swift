@@ -2,6 +2,7 @@ import AppKit
 import AgentStatusCore
 import Combine
 import CoreGraphics
+import QuartzCore
 import SwiftUI
 
 private final class NotchPanel: NSPanel {
@@ -30,6 +31,8 @@ final class NotchPanelController {
     private let model = NotchPresentationModel()
     private var cancellables = Set<AnyCancellable>()
     private var screenObserver: NSObjectProtocol?
+    private var globalMouseMonitor: Any?
+    private var localMouseMonitor: Any?
 
     private let compactHeight: CGFloat = 34
     private let expandedWidth: CGFloat = 420
@@ -84,6 +87,7 @@ final class NotchPanelController {
             }
         }
 
+        installDismissMonitors()
         updatePanel(sessions: store.sessions, expanded: false)
     }
 
@@ -93,6 +97,14 @@ final class NotchPanelController {
             NotificationCenter.default.removeObserver(screenObserver)
         }
         screenObserver = nil
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+        }
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+        }
+        globalMouseMonitor = nil
+        localMouseMonitor = nil
         panel.orderOut(nil)
     }
 
@@ -119,8 +131,20 @@ final class NotchPanelController {
         )
 
         model.notchWidth = notch.width
-        panel.setFrame(frame, display: true)
-        container.interactiveRects = [container.bounds]
+        if panel.isVisible,
+           panel.frame != frame,
+           !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.26
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.allowsImplicitAnimation = true
+                panel.animator().setFrame(frame, display: true)
+            }
+        } else {
+            panel.setFrame(frame, display: true)
+        }
+        container.interactiveRects = [NSRect(origin: .zero, size: frame.size)]
         panel.ignoresMouseEvents = false
         panel.orderFrontRegardless()
     }
@@ -149,6 +173,29 @@ final class NotchPanelController {
         // Non-notched and older displays use a stable top-center affordance.
         return (screen.frame.midX, 140)
     }
+
+    private func installDismissMonitors() {
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.collapseIfClickIsOutsidePanel()
+            }
+        }
+
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            self?.collapseIfClickIsOutsidePanel()
+            return event
+        }
+    }
+
+    private func collapseIfClickIsOutsidePanel() {
+        guard model.isExpanded else { return }
+        guard !panel.frame.contains(NSEvent.mouseLocation) else { return }
+        model.isExpanded = false
+    }
 }
 
 @MainActor
@@ -160,6 +207,7 @@ private final class NotchPresentationModel: ObservableObject {
 private struct NotchRootView: View {
     @ObservedObject var store: SessionStore
     @ObservedObject var model: NotchPresentationModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -201,7 +249,12 @@ private struct NotchRootView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(store.sessions) { session in
-                            SessionRow(session: session)
+                            SessionRow(
+                                session: session,
+                                onForget: {
+                                    store.forgetSession(id: session.id)
+                                }
+                            )
                             if session.id != store.sessions.last?.id {
                                 Divider().overlay(Color.white.opacity(0.12))
                             }
@@ -212,10 +265,15 @@ private struct NotchRootView: View {
                 }
                 .frame(maxHeight: 260)
                 .background(Color.black)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .background(Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: model.isExpanded ? 12 : 8))
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: 0.26),
+            value: model.isExpanded
+        )
     }
 
     private var accessibilityStatus: String {
@@ -226,6 +284,7 @@ private struct NotchRootView: View {
 
 private struct SessionRow: View {
     let session: AgentSession
+    let onForget: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -239,6 +298,13 @@ private struct SessionRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 12)
+            Button(action: onForget) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Forget this session")
+            .accessibilityLabel("Forget \(session.name ?? session.host.displayName) session")
             HStack(spacing: 6) {
                 AnimatedStatusIndicator(status: session.status)
                     .frame(width: 9, height: 9)

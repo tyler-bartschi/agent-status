@@ -1,5 +1,8 @@
 import importlib.util
+import io
+import json
 import pathlib
+import sys
 import unittest
 from unittest import mock
 
@@ -58,6 +61,44 @@ class HookAdapterTests(unittest.TestCase):
             return_value=["/applications/codex.app/contents/macos/codex"],
         ):
             self.assertEqual(HOOK.host_for("codex", {}), "codexDesktop")
+
+    def test_normalized_event_retains_turn_process_and_hook_metadata(self):
+        payload = {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "cwd": "/tmp/project",
+        }
+        with mock.patch.object(sys, "stdin", io.StringIO(json.dumps(payload))):
+            with mock.patch.object(
+                sys,
+                "argv",
+                ["agent-status-hook.py", "--provider", "codex"],
+            ):
+                with mock.patch.object(
+                    HOOK,
+                    "provider_process_id",
+                    return_value=123,
+                ):
+                    with mock.patch.object(HOOK, "send_event") as send_event:
+                        HOOK.main()
+
+        normalized = send_event.call_args.args[0]
+        self.assertEqual(normalized["turnID"], "turn-1")
+        self.assertEqual(normalized["workingDirectory"], "/tmp/project")
+        self.assertEqual(normalized["processID"], 123)
+        self.assertEqual(normalized["sourceEvent"], "UserPromptSubmit")
+
+    def test_provider_pid_skips_hook_shell_and_finds_node_based_claude(self):
+        with mock.patch.object(
+            HOOK,
+            "process_chain",
+            return_value=[
+                (100, "/bin/sh agent-status-hook.py --provider claude"),
+                (90, "/usr/local/bin/node /opt/claude-code/cli.js"),
+            ],
+        ):
+            self.assertEqual(HOOK.provider_process_id("claude"), 90)
 
 
 if __name__ == "__main__":

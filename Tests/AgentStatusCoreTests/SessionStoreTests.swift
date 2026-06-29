@@ -233,6 +233,199 @@ struct SessionStoreTests {
         #expect(store.displayState == nil)
     }
 
+    @Test func eventsWithDifferentSessionIDsButTheSameTurnAreCoalesced() {
+        let sleeper = ManualSleeper()
+        let store = makeStore(sleeper: sleeper)
+
+        store.process(event("desktop-a", activity: .working, turnID: "turn-1"))
+        store.process(event("desktop-b", activity: .working, turnID: "turn-1"))
+
+        #expect(store.sessions.count == 1)
+        #expect(store.displayState == AggregateDisplayState(status: .working, count: 1))
+
+        store.process(event("desktop-b", activity: .finished, turnID: "turn-1"))
+
+        #expect(store.sessions.count == 1)
+        #expect(store.sessions.first?.status == .finished)
+        #expect(store.displayState == AggregateDisplayState(status: .finished, count: 1))
+    }
+
+    @Test func differentTurnsInTheSameHostRemainDistinctSessions() {
+        let store = SessionStore()
+
+        store.process(event("one", activity: .working, turnID: "turn-1"))
+        store.process(event("two", activity: .working, turnID: "turn-2"))
+
+        #expect(store.sessions.count == 2)
+        #expect(store.displayState == AggregateDisplayState(status: .working, count: 2))
+    }
+
+    @Test func stableSessionRegistersEachNewTurnForAliasCoalescing() {
+        let store = SessionStore()
+        store.process(event("stable", activity: .working, turnID: "turn-1"))
+        store.process(event("stable", activity: .working, turnID: "turn-2"))
+
+        store.process(event("alternate", activity: .working, turnID: "turn-2"))
+
+        #expect(store.sessions.count == 1)
+        #expect(store.session(id: "stable")?.status == .working)
+    }
+
+    @Test func forgottenSessionCanReappearFromTheSameEvent() {
+        var transitions: [SessionTransition] = []
+        let store = SessionStore { transitions.append($0) }
+        let waiting = event("one", activity: .waiting, turnID: "turn-1")
+        store.process(waiting)
+
+        #expect(store.forgetSession(id: "one"))
+        #expect(store.sessions.isEmpty)
+
+        #expect(store.process(waiting))
+        #expect(store.session(id: "one")?.status == .waiting)
+        #expect(transitions.count == 2)
+    }
+
+    @Test func staleCleanupUsesProcessLivenessForCLIAndAgeForDesktop() {
+        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
+        let store = SessionStore(now: { clock.value })
+
+        store.process(event("desktop", activity: .working))
+        store.process(event("waiting", activity: .waiting))
+        store.process(event("dead-cli", host: .codexCLI, activity: .working, processID: 10))
+        store.process(event("live-cli", host: .claudeCLI, activity: .working, processID: 20))
+        clock.value = clock.value.addingTimeInterval(31 * 60)
+
+        let removed = store.pruneStaleWorkingSessions(
+            inactiveFor: 30 * 60,
+            isProcessAlive: { $0 == 20 }
+        )
+
+        #expect(Set(removed) == Set(["desktop", "dead-cli"]))
+        #expect(store.session(id: "waiting")?.status == .waiting)
+        #expect(store.session(id: "live-cli")?.status == .working)
+    }
+
+    @Test func notificationWaitingIsCancelledWhenFinishedArrives() async {
+        let sleeper = ManualSleeper()
+        var transitions: [SessionTransition] = []
+        let store = SessionStore { transitions.append($0) }
+        let coordinator = SessionEventCoordinator(
+            store: store,
+            sleep: { duration in try await sleeper.sleep(for: duration) }
+        )
+
+        coordinator.receive(
+            event(
+                "claude",
+                host: .claudeCLI,
+                activity: .waiting,
+                sourceEvent: "Notification"
+            )
+        )
+        await sleeper.waitForPendingCount(1)
+        coordinator.receive(
+            event(
+                "claude",
+                host: .claudeCLI,
+                activity: .finished,
+                sourceEvent: "Stop"
+            )
+        )
+        sleeper.resumeAll()
+        await settleTasks()
+
+        #expect(store.session(id: "claude")?.status == .finished)
+        #expect(transitions.map(\.status) == [.finished])
+    }
+
+    @Test func notificationWaitingAppearsAfterDebounceWhenNoLaterEventArrives() async {
+        let sleeper = ManualSleeper()
+        let store = SessionStore()
+        let coordinator = SessionEventCoordinator(
+            store: store,
+            sleep: { duration in try await sleeper.sleep(for: duration) }
+        )
+
+        coordinator.receive(
+            event(
+                "claude",
+                host: .claudeCLI,
+                activity: .waiting,
+                sourceEvent: "Notification"
+            )
+        )
+        await sleeper.waitForPendingCount(1)
+        #expect(store.sessions.isEmpty)
+
+        sleeper.resumeAll()
+        await settleTasks()
+
+        #expect(store.session(id: "claude")?.status == .waiting)
+    }
+
+    @Test func lateNotificationCannotReplaceFinishedState() async {
+        let sleeper = ManualSleeper()
+        let store = SessionStore()
+        let coordinator = SessionEventCoordinator(
+            store: store,
+            sleep: { duration in try await sleeper.sleep(for: duration) }
+        )
+        coordinator.receive(
+            event(
+                "claude",
+                host: .claudeCLI,
+                activity: .finished,
+                sourceEvent: "Stop"
+            )
+        )
+
+        coordinator.receive(
+            event(
+                "claude",
+                host: .claudeCLI,
+                activity: .waiting,
+                sourceEvent: "Notification"
+            )
+        )
+        await settleTasks()
+
+        #expect(sleeper.pendingCount == 0)
+        #expect(store.session(id: "claude")?.status == .finished)
+    }
+
+    @Test func questionLikeStopIsCancelledBySessionEnd() async {
+        let sleeper = ManualSleeper()
+        var transitions: [SessionTransition] = []
+        let store = SessionStore { transitions.append($0) }
+        let coordinator = SessionEventCoordinator(
+            store: store,
+            sleep: { duration in try await sleeper.sleep(for: duration) }
+        )
+        coordinator.receive(
+            event(
+                "claude",
+                host: .claudeCLI,
+                activity: .waiting,
+                sourceEvent: "Stop"
+            )
+        )
+        await sleeper.waitForPendingCount(1)
+
+        coordinator.receive(
+            event(
+                "claude",
+                host: .claudeCLI,
+                activity: .ended,
+                sourceEvent: "SessionEnd"
+            )
+        )
+        sleeper.resumeAll()
+        await settleTasks()
+
+        #expect(store.session(id: "claude")?.status == .finished)
+        #expect(transitions.map(\.status) == [.finished])
+    }
+
     private func makeStore(
         sleeper: ManualSleeper,
         onTransition: SessionStore.TransitionHandler? = nil
@@ -248,15 +441,40 @@ struct SessionStoreTests {
         _ id: String,
         host: HostApplication = .codexDesktop,
         name: String? = nil,
-        activity: SessionEvent.Activity
+        activity: SessionEvent.Activity,
+        turnID: String? = nil,
+        processID: Int32? = nil,
+        sourceEvent: String? = nil
     ) -> SessionEvent {
-        SessionEvent(sessionID: id, host: host, name: name, activity: activity)
+        SessionEvent(
+            sessionID: id,
+            host: host,
+            name: name,
+            activity: activity,
+            turnID: turnID,
+            processID: processID,
+            sourceEvent: sourceEvent
+        )
     }
 
     private func settleTasks() async {
         for _ in 0..<10 {
             await Task.yield()
         }
+    }
+}
+
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: Date
+
+    init(_ value: Date) {
+        storedValue = value
+    }
+
+    var value: Date {
+        get { lock.withLock { storedValue } }
+        set { lock.withLock { storedValue = newValue } }
     }
 }
 
