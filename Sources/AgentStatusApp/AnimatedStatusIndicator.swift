@@ -218,7 +218,7 @@ final class StatusIndicatorView: NSView {
 
         let pulse = CAAnimationGroup()
         pulse.animations = [scale, opacity]
-        pulse.duration = 0.88
+        pulse.duration = 1.12
         pulse.repeatCount = .infinity
         pulse.timingFunction = CAMediaTimingFunction(name: .easeOut)
         pulseLayer.add(pulse, forKey: "waiting.pulse")
@@ -226,7 +226,7 @@ final class StatusIndicatorView: NSView {
         let heartbeat = CABasicAnimation(keyPath: "transform.scale")
         heartbeat.fromValue = 0.68
         heartbeat.toValue = 1
-        heartbeat.duration = 0.44
+        heartbeat.duration = 0.56
         heartbeat.autoreverses = true
         heartbeat.repeatCount = .infinity
         heartbeat.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
