@@ -91,12 +91,14 @@ for displays without a notch. The panel joins all Spaces and uses constrained
 hit testing so transparent areas do not intercept clicks.
 
 Status symbols use Core Animation so repeating Working and Waiting motion runs
-on the compositor without SwiftUI timers. Finished uses a one-shot checkmark
+on the compositor without SwiftUI timers. Waiting combines an in-bounds
+expanding ring with a heartbeat, and Finished uses a one-shot checkmark
 animation. All symbols provide static variants when Reduce Motion is enabled.
-The panel frame and list animate together when expanding or collapsing. Global
-and local mouse monitors collapse it on outside clicks. Expanded rows expose a
-manual forget action; provider events are allowed to recreate forgotten
-sessions.
+The top-anchored panel frame animates while the list fades, keeping the compact
+bar fixed against the screen edge. The whole panel fades when its final session
+expires. Only the lower panel corners are rounded. Global and local mouse
+monitors collapse it on outside clicks. Expanded rows expose a manual forget
+action; provider events are allowed to recreate forgotten sessions.
 
 The menu-bar status item opens settings for launch-at-login, separate Waiting
 and Finished sound controls, volume, hook installation status, and the source

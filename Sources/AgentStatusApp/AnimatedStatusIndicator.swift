@@ -121,6 +121,10 @@ final class StatusIndicatorView: NSView {
             ellipseIn: circleRect,
             transform: nil
         )
+        let waitingDotPath = CGPath(
+            ellipseIn: circleRect.insetBy(dx: side * 0.19, dy: side * 0.19),
+            transform: nil
+        )
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -129,8 +133,9 @@ final class StatusIndicatorView: NSView {
             $0.contentsScale = window?.backingScaleFactor ?? 2
         }
         pulseLayer.path = circlePath
-        baseLayer.path = circlePath
+        baseLayer.path = status == .waiting ? waitingDotPath : circlePath
         activityLayer.path = circlePath
+        pulseLayer.lineWidth = lineWidth
         baseLayer.lineWidth = lineWidth
         activityLayer.lineWidth = lineWidth
         glyphLayer.lineWidth = max(1.2, side * 0.14)
@@ -193,25 +198,34 @@ final class StatusIndicatorView: NSView {
     private func renderWaiting(animated: Bool) {
         let red = NSColor.systemRed
         baseLayer.fillColor = red.cgColor
-        pulseLayer.fillColor = red.cgColor
+        pulseLayer.strokeColor = red.cgColor
 
         guard animated else { return }
-        pulseLayer.opacity = 0.65
+        pulseLayer.opacity = 1
 
         let scale = CABasicAnimation(keyPath: "transform.scale")
-        scale.fromValue = 0.82
-        scale.toValue = 1.75
+        scale.fromValue = 0.42
+        scale.toValue = 1
 
         let opacity = CABasicAnimation(keyPath: "opacity")
-        opacity.fromValue = 0.65
-        opacity.toValue = 0
+        opacity.fromValue = 1
+        opacity.toValue = 0.08
 
         let pulse = CAAnimationGroup()
         pulse.animations = [scale, opacity]
-        pulse.duration = 1.35
+        pulse.duration = 1.05
         pulse.repeatCount = .infinity
         pulse.timingFunction = CAMediaTimingFunction(name: .easeOut)
         pulseLayer.add(pulse, forKey: "waiting.pulse")
+
+        let heartbeat = CABasicAnimation(keyPath: "transform.scale")
+        heartbeat.fromValue = 0.78
+        heartbeat.toValue = 1
+        heartbeat.duration = 0.52
+        heartbeat.autoreverses = true
+        heartbeat.repeatCount = .infinity
+        heartbeat.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        baseLayer.add(heartbeat, forKey: "waiting.heartbeat")
     }
 
     private func renderFinished(animated: Bool) {

@@ -33,6 +33,8 @@ final class NotchPanelController {
     private var screenObserver: NSObjectProtocol?
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var visibilityRevision: UInt64 = 0
+    private var isFadingOut = false
 
     private let compactHeight: CGFloat = 34
     private let expandedWidth: CGFloat = 420
@@ -109,15 +111,24 @@ final class NotchPanelController {
     }
 
     private func updatePanel(sessions: [AgentSession], expanded: Bool) {
-        guard !sessions.isEmpty, let screen = builtInScreen() else {
+        guard !sessions.isEmpty else {
             if model.isExpanded {
                 model.isExpanded = false
+                return
             }
+            fadeOutPanel()
+            return
+        }
+
+        guard let screen = builtInScreen() else {
             panel.ignoresMouseEvents = true
             panel.orderOut(nil)
             return
         }
 
+        visibilityRevision &+= 1
+        isFadingOut = false
+        panel.alphaValue = 1
         let notch = notchMetrics(on: screen)
         let isExpanded = expanded && !sessions.isEmpty
         let width = isExpanded ? expandedWidth : notch.width + 108
@@ -147,6 +158,39 @@ final class NotchPanelController {
         container.interactiveRects = [NSRect(origin: .zero, size: frame.size)]
         panel.ignoresMouseEvents = false
         panel.orderFrontRegardless()
+    }
+
+    private func fadeOutPanel() {
+        panel.ignoresMouseEvents = true
+        guard panel.isVisible else {
+            panel.alphaValue = 1
+            return
+        }
+        guard !isFadingOut else { return }
+
+        visibilityRevision &+= 1
+        let revision = visibilityRevision
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+            return
+        }
+
+        isFadingOut = true
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.32
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.isFadingOut = false
+                if self.visibilityRevision == revision {
+                    self.panel.orderOut(nil)
+                }
+                self.panel.alphaValue = 1
+            }
+        }
     }
 
     private func builtInScreen() -> NSScreen? {
@@ -245,40 +289,67 @@ private struct NotchRootView: View {
             .accessibilityLabel(model.isExpanded ? "Collapse active sessions" : "Show active sessions")
             .accessibilityValue(accessibilityStatus)
 
-            if model.isExpanded {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(store.sessions) { session in
-                            SessionRow(
-                                session: session,
-                                onForget: {
-                                    store.forgetSession(id: session.id)
-                                }
-                            )
-                            if session.id != store.sessions.last?.id {
-                                Divider().overlay(Color.white.opacity(0.12))
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(store.sessions) { session in
+                        SessionRow(
+                            session: session,
+                            onForget: {
+                                store.forgetSession(id: session.id)
                             }
+                        )
+                        if session.id != store.sessions.last?.id {
+                            Divider().overlay(Color.white.opacity(0.12))
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
                 }
-                .frame(maxHeight: 260)
-                .background(Color.black)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
             }
+            .frame(height: sessionListHeight)
+            .background(Color.black)
+            .opacity(model.isExpanded ? 1 : 0)
+            .allowsHitTesting(model.isExpanded)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 0.18),
+                value: model.isExpanded
+            )
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: model.isExpanded ? 12 : 8))
-        .animation(
-            reduceMotion ? nil : .easeInOut(duration: 0.26),
-            value: model.isExpanded
-        )
+        .clipShape(BottomRoundedRectangle(radius: model.isExpanded ? 12 : 8))
     }
 
     private var accessibilityStatus: String {
         guard let state = store.displayState else { return "No active sessions" }
         return "\(state.count) \(state.status.displayName.lowercased())"
+    }
+
+    private var sessionListHeight: CGFloat {
+        min(CGFloat(store.sessions.count) * 38 + 18, 260)
+    }
+}
+
+private struct BottomRoundedRectangle: Shape {
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let radius = min(radius, min(rect.width / 2, rect.height / 2))
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - radius),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.closeSubpath()
+        return path
     }
 }
 
