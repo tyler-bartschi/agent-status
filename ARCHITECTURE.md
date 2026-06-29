@@ -65,6 +65,9 @@ event does not produce a transient Waiting state or tone.
 Claude Code `Stop` and `idle_prompt` events are terminal turn events and map to
 Finished; the CLI process does not need to exit. Explicit permission and
 input-required notifications map to Waiting.
+Context compaction hooks are deliberately status-neutral. Claude can run
+PreCompact, PostCompact, and a compact-sourced SessionStart while preparing a
+recap; none of those maintenance events may revive a Finished session.
 
 ## Provider integration
 

@@ -129,7 +129,12 @@ def activity_for(event, payload, provider=None):
             return "waiting"
         return "working"
     if normalized == "sessionstart":
+        source = str(payload.get("source") or "").lower()
+        if source == "compact":
+            return None
         return "idle"
+    if normalized in ("precompact", "postcompact"):
+        return None
     if normalized in (
         "userpromptsubmit",
         "pretooluse",
@@ -137,8 +142,6 @@ def activity_for(event, payload, provider=None):
         "posttoolusefailure",
         "subagentstart",
         "subagentstop",
-        "precompact",
-        "postcompact",
     ):
         return "working"
     return None

@@ -96,7 +96,9 @@ integration.
 
 For Claude Code, `Stop` and generic `idle_prompt` events mean the current turn
 is Finished even while the CLI remains open. Explicit permission and
-input-required events remain Waiting.
+input-required events remain Waiting. Automatic and manual context compaction
+(`PreCompact`, `PostCompact`, and `SessionStart` with source `compact`) are
+maintenance events and do not change the displayed status.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and operational details.
 

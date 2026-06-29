@@ -118,6 +118,27 @@ class HookAdapterTests(unittest.TestCase):
         ):
             self.assertEqual(HOOK.provider_process_id("claude"), 90)
 
+    def test_compaction_events_do_not_restart_activity(self):
+        self.assertIsNone(
+            HOOK.activity_for("PreCompact", {"trigger": "auto"}, "claude")
+        )
+        self.assertIsNone(
+            HOOK.activity_for(
+                "PostCompact",
+                {"trigger": "auto", "compact_summary": "recap"},
+                "claude",
+            )
+        )
+        self.assertIsNone(
+            HOOK.activity_for("SessionStart", {"source": "compact"}, "claude")
+        )
+
+    def test_regular_session_start_remains_idle(self):
+        self.assertEqual(
+            HOOK.activity_for("SessionStart", {"source": "startup"}, "claude"),
+            "idle",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
