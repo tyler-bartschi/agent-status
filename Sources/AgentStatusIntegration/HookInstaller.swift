@@ -17,7 +17,7 @@ public struct HookInstallationStatus: Equatable, Sendable {
 
 /// Installs the bundled adapter and merges only Agent Status-owned hook
 /// handlers into provider configuration.
-public struct HookInstaller: Sendable {
+public struct HookInstaller {
     public enum InstallerError: LocalizedError {
         case invalidConfiguration(URL)
         case missingBundledHook(URL)

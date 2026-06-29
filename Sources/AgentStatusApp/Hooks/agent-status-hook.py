@@ -61,12 +61,10 @@ def host_for(provider, payload):
         or ""
     ).lower()
     ancestry = " ".join(process_ancestry())
-    desktop = (
-        "desktop" in supplied
-        or ".app/contents/" in ancestry
-        or (provider == "codex" and "codex app" in ancestry)
-        or (provider == "claude" and "claude.app" in ancestry)
-    )
+    if provider == "claude":
+        desktop = "desktop" in supplied or "claude.app/contents/" in ancestry
+    else:
+        desktop = "desktop" in supplied or "codex.app/contents/" in ancestry
     if provider == "claude":
         return "claudeDesktop" if desktop else "claudeCLI"
     return "codexDesktop" if desktop else "codexCLI"
@@ -83,6 +81,12 @@ def first_string(payload, keys):
 def activity_for(event, payload):
     normalized = event.lower().replace("_", "").replace("-", "")
     if normalized in ("stop", "stopfailure"):
+        final_message = first_string(
+            payload,
+            ("last_assistant_message", "lastAssistantMessage"),
+        )
+        if final_message and "?" in final_message[-2000:]:
+            return "waiting"
         return "finished"
     if normalized == "sessionend":
         return "ended"

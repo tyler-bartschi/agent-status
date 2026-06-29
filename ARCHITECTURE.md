@@ -8,6 +8,8 @@ from Codex and Claude hooks over a local Unix-domain socket.
 
 - `AgentStatusCore`: provider-neutral session model, aggregation, event decoding,
   and the revision-safe three-second Finished lifecycle.
+- `AgentStatusIntegration`: owner-only socket transport and idempotent provider
+  hook configuration management.
 - `AgentStatusApp`: AppKit lifecycle, socket server, hook installation,
   preferences and audio, notch panel geometry, and SwiftUI views.
 - `Hooks/agent-status-hook.py`: a fire-and-forget adapter that maps provider
@@ -78,9 +80,9 @@ non-managed hooks.
 
 The app is packaged as an `LSUIElement` application. Its notch surface is a
 borderless non-activating panel on the built-in display, positioned from
-`auxiliaryTopLeftArea`, `auxiliaryTopRightArea`, and `safeAreaInsets`. The
-panel joins all Spaces and uses constrained hit testing so transparent areas
-do not intercept clicks.
+`auxiliaryTopLeftArea` and `auxiliaryTopRightArea`, with a centered fallback
+for displays without a notch. The panel joins all Spaces and uses constrained
+hit testing so transparent areas do not intercept clicks.
 
 The menu-bar status item opens settings for launch-at-login, separate Waiting
 and Finished sound controls, volume, hook installation status, and the source
@@ -88,8 +90,8 @@ repository.
 
 ## Operational constraints
 
-- The socket is local, owner-only, and recreated after wake or unexpected
-  closure.
+- The socket is local, per-user, owner-only, and recreated on application
+  launch when a stale socket is present.
 - Hooks are best-effort and never block the agent workflow on delivery failure.
 - Hook payloads and transcript formats are not persisted by the app.
 - There are no telemetry or update-service dependencies.

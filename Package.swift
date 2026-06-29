@@ -9,13 +9,18 @@ let package = Package(
     ],
     products: [
         .library(name: "AgentStatusCore", targets: ["AgentStatusCore"]),
+        .library(name: "AgentStatusIntegration", targets: ["AgentStatusIntegration"]),
         .executable(name: "AgentStatusApp", targets: ["AgentStatusApp"])
     ],
     targets: [
         .target(name: "AgentStatusCore"),
+        .target(
+            name: "AgentStatusIntegration",
+            dependencies: ["AgentStatusCore"]
+        ),
         .executableTarget(
             name: "AgentStatusApp",
-            dependencies: ["AgentStatusCore"],
+            dependencies: ["AgentStatusCore", "AgentStatusIntegration"],
             resources: [
                 .copy("Hooks/agent-status-hook.py")
             ]
@@ -23,6 +28,11 @@ let package = Package(
         .testTarget(
             name: "AgentStatusCoreTests",
             dependencies: ["AgentStatusCore"]
+        ),
+        .testTarget(
+            name: "AgentStatusIntegrationTests",
+            dependencies: ["AgentStatusIntegration"]
         )
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )
