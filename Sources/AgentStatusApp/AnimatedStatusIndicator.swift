@@ -115,7 +115,7 @@ final class StatusIndicatorView: NSView {
             width: side,
             height: side
         )
-        let lineWidth = max(1.25, side * 0.15)
+        let lineWidth = max(1.5, side * 0.19)
         let circleRect = frame.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
         let circlePath = CGPath(
             ellipseIn: circleRect,
@@ -160,6 +160,7 @@ final class StatusIndicatorView: NSView {
         pulseLayer.opacity = 0
         pulseLayer.fillColor = NSColor.clear.cgColor
         pulseLayer.strokeColor = NSColor.clear.cgColor
+        pulseLayer.shadowOpacity = 0
         baseLayer.fillColor = NSColor.clear.cgColor
         baseLayer.strokeColor = NSColor.clear.cgColor
         activityLayer.strokeColor = NSColor.clear.cgColor
@@ -199,29 +200,33 @@ final class StatusIndicatorView: NSView {
         let red = NSColor.systemRed
         baseLayer.fillColor = red.cgColor
         pulseLayer.strokeColor = red.cgColor
+        pulseLayer.shadowColor = red.cgColor
+        pulseLayer.shadowOpacity = 0.9
+        pulseLayer.shadowRadius = 2.5
+        pulseLayer.shadowOffset = .zero
 
         guard animated else { return }
         pulseLayer.opacity = 1
 
         let scale = CABasicAnimation(keyPath: "transform.scale")
-        scale.fromValue = 0.42
+        scale.fromValue = 0.36
         scale.toValue = 1
 
         let opacity = CABasicAnimation(keyPath: "opacity")
         opacity.fromValue = 1
-        opacity.toValue = 0.08
+        opacity.toValue = 0.22
 
         let pulse = CAAnimationGroup()
         pulse.animations = [scale, opacity]
-        pulse.duration = 1.05
+        pulse.duration = 0.88
         pulse.repeatCount = .infinity
         pulse.timingFunction = CAMediaTimingFunction(name: .easeOut)
         pulseLayer.add(pulse, forKey: "waiting.pulse")
 
         let heartbeat = CABasicAnimation(keyPath: "transform.scale")
-        heartbeat.fromValue = 0.78
+        heartbeat.fromValue = 0.68
         heartbeat.toValue = 1
-        heartbeat.duration = 0.52
+        heartbeat.duration = 0.44
         heartbeat.autoreverses = true
         heartbeat.repeatCount = .infinity
         heartbeat.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)

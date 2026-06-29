@@ -11,12 +11,10 @@ private final class NotchPanel: NSPanel {
 }
 
 private final class ConstrainedHitTestView: NSView {
-    var interactiveRects: [NSRect] = []
-
     override var isOpaque: Bool { false }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard interactiveRects.contains(where: { $0.contains(point) }) else {
+        guard bounds.contains(point) else {
             return nil
         }
         return super.hitTest(point)
@@ -129,6 +127,7 @@ final class NotchPanelController {
         visibilityRevision &+= 1
         isFadingOut = false
         panel.alphaValue = 1
+        let wasVisible = panel.isVisible
         let notch = notchMetrics(on: screen)
         let isExpanded = expanded && !sessions.isEmpty
         let width = isExpanded ? expandedWidth : notch.width + 108
@@ -155,9 +154,10 @@ final class NotchPanelController {
         } else {
             panel.setFrame(frame, display: true)
         }
-        container.interactiveRects = [NSRect(origin: .zero, size: frame.size)]
         panel.ignoresMouseEvents = false
-        panel.orderFrontRegardless()
+        if !wasVisible {
+            panel.orderFrontRegardless()
+        }
     }
 
     private func fadeOutPanel() {
@@ -223,21 +223,22 @@ final class NotchPanelController {
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
             DispatchQueue.main.async {
-                self?.collapseIfClickIsOutsidePanel()
+                self?.collapseExpandedPanel()
             }
         }
 
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
-            self?.collapseIfClickIsOutsidePanel()
+            if let self, event.window !== self.panel {
+                self.collapseExpandedPanel()
+            }
             return event
         }
     }
 
-    private func collapseIfClickIsOutsidePanel() {
+    private func collapseExpandedPanel() {
         guard model.isExpanded else { return }
-        guard !panel.frame.contains(NSEvent.mouseLocation) else { return }
         model.isExpanded = false
     }
 }
@@ -263,7 +264,7 @@ private struct NotchRootView: View {
                     Group {
                         if let displayState = store.displayState {
                             AnimatedStatusIndicator(status: displayState.status)
-                                .frame(width: 12, height: 12)
+                                .frame(width: 14, height: 14)
                                 .accessibilityHidden(true)
                         }
                     }
@@ -306,7 +307,7 @@ private struct NotchRootView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
             }
-            .frame(height: sessionListHeight)
+            .frame(height: model.isExpanded ? sessionListHeight : 0)
             .background(Color.black)
             .opacity(model.isExpanded ? 1 : 0)
             .allowsHitTesting(model.isExpanded)
@@ -317,7 +318,7 @@ private struct NotchRootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.clear)
-        .clipShape(BottomRoundedRectangle(radius: model.isExpanded ? 12 : 8))
+        .clipShape(BottomRoundedRectangle(radius: model.isExpanded ? 14 : 10))
     }
 
     private var accessibilityStatus: String {
@@ -378,7 +379,7 @@ private struct SessionRow: View {
             .accessibilityLabel("Forget \(session.name ?? session.host.displayName) session")
             HStack(spacing: 6) {
                 AnimatedStatusIndicator(status: session.status)
-                    .frame(width: 9, height: 9)
+                    .frame(width: 11, height: 11)
                     .accessibilityHidden(true)
                 Text(session.status.displayName)
             }
