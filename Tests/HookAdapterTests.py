@@ -26,24 +26,42 @@ class HookAdapterTests(unittest.TestCase):
         self.assertEqual(HOOK.activity_for("PermissionRequest", {}), "waiting")
         self.assertEqual(
             HOOK.activity_for("Notification", {"notification_type": "idle_prompt"}),
-            "waiting",
+            "working",
         )
         self.assertEqual(HOOK.activity_for("Stop", {}), "finished")
         self.assertEqual(HOOK.activity_for("SessionEnd", {}), "ended")
 
     def test_stop_question_waits_for_input(self):
         payload = {"last_assistant_message": "Which option should I use?"}
-        self.assertEqual(HOOK.activity_for("Stop", payload), "waiting")
+        self.assertEqual(HOOK.activity_for("Stop", payload, "codex"), "waiting")
 
     def test_stop_question_with_following_choices_waits_for_input(self):
         payload = {
             "last_assistant_message": "Which option should I use?\n1. Fast\n2. Thorough"
         }
-        self.assertEqual(HOOK.activity_for("Stop", payload), "waiting")
+        self.assertEqual(HOOK.activity_for("Stop", payload, "codex"), "waiting")
 
     def test_stop_completed_statement_finishes(self):
         payload = {"last_assistant_message": "Implementation and tests are complete."}
-        self.assertEqual(HOOK.activity_for("Stop", payload), "finished")
+        self.assertEqual(HOOK.activity_for("Stop", payload, "codex"), "finished")
+
+    def test_claude_stop_is_finished_even_when_text_contains_a_question(self):
+        payload = {"last_assistant_message": "Anything else?"}
+        self.assertEqual(HOOK.activity_for("Stop", payload, "claude"), "finished")
+
+    def test_claude_idle_notification_is_finished_not_waiting(self):
+        payload = {"notification_type": "idle_prompt"}
+        self.assertEqual(
+            HOOK.activity_for("Notification", payload, "claude"),
+            "finished",
+        )
+
+    def test_claude_permission_notification_remains_waiting(self):
+        payload = {"notification_type": "permission_prompt"}
+        self.assertEqual(
+            HOOK.activity_for("Notification", payload, "claude"),
+            "waiting",
+        )
 
     def test_terminal_app_does_not_make_cli_a_desktop_session(self):
         with mock.patch.object(

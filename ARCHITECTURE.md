@@ -62,6 +62,9 @@ is removed after three seconds unless a newer event changes its revision.
 Transition audio is emitted per session, not per aggregate display change.
 Ambiguous idle/question events are briefly debounced so a following completion
 event does not produce a transient Waiting state or tone.
+Claude Code `Stop` and `idle_prompt` events are terminal turn events and map to
+Finished; the CLI process does not need to exit. Explicit permission and
+input-required notifications map to Waiting.
 
 ## Provider integration
 

@@ -5,6 +5,7 @@ import AgentStatusCore
 final class AudioController {
     private let preferences: AppPreferences
     private var activeSounds: [NSSound] = []
+    private weak var previewSound: NSSound?
 
     init(preferences: AppPreferences) {
         self.preferences = preferences
@@ -22,8 +23,33 @@ final class AudioController {
             return
         }
 
+        playSound(named: soundName, isPreview: false)
+    }
+
+    func preview(_ status: SessionStatus) {
+        let soundName: String
+        switch status {
+        case .waiting:
+            soundName = preferences.waitingSoundName
+        case .finished:
+            soundName = preferences.finishedSoundName
+        case .working:
+            return
+        }
+        playSound(named: soundName, isPreview: true)
+    }
+
+    private func playSound(named soundName: String, isPreview: Bool) {
+        if isPreview, let previewSound {
+            previewSound.stop()
+            activeSounds.removeAll { $0 === previewSound }
+        }
+
         guard let sound = makeSound(named: soundName) else { return }
         sound.volume = Float(preferences.volume)
+        if isPreview {
+            previewSound = sound
+        }
         activeSounds.append(sound)
         sound.play()
         let duration = max(sound.duration, 0.25)
@@ -31,6 +57,9 @@ final class AudioController {
             try? await Task.sleep(for: .seconds(duration + 0.25))
             guard let sound else { return }
             self?.activeSounds.removeAll { $0 === sound }
+            if self?.previewSound === sound {
+                self?.previewSound = nil
+            }
         }
     }
 
@@ -44,5 +73,4 @@ final class AudioController {
             .appendingPathExtension("aiff")
         return NSSound(contentsOf: url, byReference: true)
     }
-
 }

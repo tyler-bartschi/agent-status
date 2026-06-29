@@ -31,7 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private lazy var settingsController = SettingsWindowController(
         preferences: preferences,
-        hookSettings: hookSettings
+        hookSettings: hookSettings,
+        audioController: audioController
     )
     private var statusItem: NSStatusItem?
     private var staleSessionTimer: Timer?

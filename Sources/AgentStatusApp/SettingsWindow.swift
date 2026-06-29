@@ -1,4 +1,5 @@
 import AppKit
+import AgentStatusCore
 import AgentStatusIntegration
 import SwiftUI
 
@@ -56,8 +57,16 @@ final class HookSettingsModel: ObservableObject {
 
 @MainActor
 final class SettingsWindowController: NSWindowController {
-    init(preferences: AppPreferences, hookSettings: HookSettingsModel) {
-        let root = SettingsView(preferences: preferences, hookSettings: hookSettings)
+    init(
+        preferences: AppPreferences,
+        hookSettings: HookSettingsModel,
+        audioController: AudioController
+    ) {
+        let root = SettingsView(
+            preferences: preferences,
+            hookSettings: hookSettings,
+            audioController: audioController
+        )
         let hostingController = NSHostingController(rootView: root)
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Agent Status Settings"
@@ -82,6 +91,7 @@ final class SettingsWindowController: NSWindowController {
 private struct SettingsView: View {
     @ObservedObject var preferences: AppPreferences
     @ObservedObject var hookSettings: HookSettingsModel
+    let audioController: AudioController
 
     var body: some View {
         Form {
@@ -112,12 +122,14 @@ private struct SettingsView: View {
                 SoundSettingRow(
                     title: "Waiting",
                     enabled: $preferences.waitingSoundEnabled,
-                    soundName: $preferences.waitingSoundName
+                    soundName: $preferences.waitingSoundName,
+                    preview: { audioController.preview(.waiting) }
                 )
                 SoundSettingRow(
                     title: "Finished",
                     enabled: $preferences.finishedSoundEnabled,
-                    soundName: $preferences.finishedSoundName
+                    soundName: $preferences.finishedSoundName,
+                    preview: { audioController.preview(.finished) }
                 )
                 HStack {
                     Text("Volume")
@@ -168,6 +180,7 @@ private struct SoundSettingRow: View {
     let title: String
     @Binding var enabled: Bool
     @Binding var soundName: String
+    let preview: () -> Void
 
     var body: some View {
         HStack {
@@ -180,7 +193,15 @@ private struct SoundSettingRow: View {
             }
             .labelsHidden()
             .frame(width: 140)
-            .disabled(!enabled)
+            .onChange(of: soundName) { _ in
+                preview()
+            }
+            Button(action: preview) {
+                Image(systemName: "play.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .help("Play \(title) sound")
+            .accessibilityLabel("Play \(title) sound")
         }
     }
 }

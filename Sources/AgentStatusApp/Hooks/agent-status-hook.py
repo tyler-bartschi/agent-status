@@ -100,9 +100,11 @@ def first_string(payload, keys):
     return None
 
 
-def activity_for(event, payload):
+def activity_for(event, payload, provider=None):
     normalized = event.lower().replace("_", "").replace("-", "")
     if normalized in ("stop", "stopfailure"):
+        if provider == "claude":
+            return "finished"
         final_message = first_string(
             payload,
             ("last_assistant_message", "lastAssistantMessage"),
@@ -121,7 +123,9 @@ def activity_for(event, payload):
             or payload.get("type")
             or ""
         ).lower()
-        if any(word in notification for word in ("idle", "input", "permission", "approval")):
+        if provider == "claude" and "idle" in notification:
+            return "finished"
+        if any(word in notification for word in ("input", "permission", "approval")):
             return "waiting"
         return "working"
     if normalized == "sessionstart":
@@ -171,11 +175,11 @@ def main():
         )
         if not event_name:
             return
-        activity = activity_for(event_name, payload)
+        provider = provider_for(payload)
+        activity = activity_for(event_name, payload, provider)
         if activity is None:
             return
 
-        provider = provider_for(payload)
         session_id = first_string(
             payload,
             (

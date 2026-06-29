@@ -68,6 +68,8 @@ development, but Launch on Login requires the app bundle.
 
 Open the menu-bar icon, choose **Settings**, and install the Codex and/or Claude
 Code hooks. Existing provider configuration and unrelated hooks are preserved.
+The Audio section provides a play button for each selected tone and previews a
+tone automatically when its selection changes.
 
 Codex requires newly installed, non-managed hooks to be reviewed and trusted.
 Open `/hooks` in Codex after installation and approve the Agent Status entries.
@@ -91,6 +93,10 @@ removed after 30 minutes.
 Claude desktop does not expose a documented passive conversation-status hook.
 Agent Status intentionally avoids brittle Accessibility or screen-scraping
 integration.
+
+For Claude Code, `Stop` and generic `idle_prompt` events mean the current turn
+is Finished even while the CLI remains open. Explicit permission and
+input-required events remain Waiting.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and operational details.
 
