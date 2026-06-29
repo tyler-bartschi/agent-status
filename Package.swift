@@ -15,7 +15,10 @@ let package = Package(
         .target(name: "AgentStatusCore"),
         .executableTarget(
             name: "AgentStatusApp",
-            dependencies: ["AgentStatusCore"]
+            dependencies: ["AgentStatusCore"],
+            resources: [
+                .copy("Hooks/agent-status-hook.py")
+            ]
         ),
         .testTarget(
             name: "AgentStatusCoreTests",
