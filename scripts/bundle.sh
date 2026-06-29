@@ -6,6 +6,16 @@ APP="$ROOT/Agent Status.app"
 CONTENTS="$APP/Contents"
 
 cd "$ROOT"
+
+# Some Command Line Tools installations retain an older compatible SDK beside
+# a newer default SDK that does not match the selected Swift compiler.
+if [ -z "${SDKROOT:-}" ] &&
+   [ "$(xcode-select -p 2>/dev/null || true)" = "/Library/Developer/CommandLineTools" ] &&
+   [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk" ]; then
+    SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk"
+    export SDKROOT
+fi
+
 swift build -c release
 
 rm -rf "$APP"

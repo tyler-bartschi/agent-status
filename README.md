@@ -18,6 +18,37 @@ the notch surface to expand a list of all active sessions.
 
 ## Build
 
+For a complete user-scoped installation:
+
+```sh
+./scripts/install.sh
+```
+
+This builds and signs the app, installs it at
+`~/Applications/Agent Status.app`, configures both Codex and Claude Code hooks,
+and launches the app. It does not require `sudo`. Codex still requires you to
+open `/hooks` once and trust the newly installed Agent Status hooks.
+
+Useful options:
+
+```sh
+./scripts/install.sh --no-hooks
+./scripts/install.sh --no-launch
+./scripts/install.sh --install-dir /Applications
+```
+
+The `/Applications` form may require running the command from an account that
+can write there. You can also set `AGENT_STATUS_INSTALL_DIR`.
+
+To remove the user-scoped installation and only Agent Status-owned hook
+entries:
+
+```sh
+./scripts/uninstall.sh
+```
+
+For development:
+
 ```sh
 swift test
 python3 -m unittest discover -s Tests -p '*Tests.py' -v
@@ -26,8 +57,8 @@ open "Agent Status.app"
 ```
 
 The bundle script creates an ad-hoc-signed `Agent Status.app` in the repository
-root. The raw SwiftPM executable can be used for development, but Launch on
-Login requires the app bundle.
+root without installing it. The raw SwiftPM executable can be used for
+development, but Launch on Login requires the app bundle.
 
 ## Configure providers
 
