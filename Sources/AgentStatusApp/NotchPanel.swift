@@ -170,9 +170,9 @@ private struct NotchRootView: View {
                 HStack(spacing: 0) {
                     Group {
                         if let displayState = store.displayState {
-                            Circle()
-                                .fill(displayState.status.color)
-                                .frame(width: 10, height: 10)
+                            AnimatedStatusIndicator(status: displayState.status)
+                                .frame(width: 12, height: 12)
+                                .accessibilityHidden(true)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -195,6 +195,7 @@ private struct NotchRootView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(model.isExpanded ? "Collapse active sessions" : "Show active sessions")
+            .accessibilityValue(accessibilityStatus)
 
             if model.isExpanded {
                 ScrollView {
@@ -216,6 +217,11 @@ private struct NotchRootView: View {
         .background(Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: model.isExpanded ? 12 : 8))
     }
+
+    private var accessibilityStatus: String {
+        guard let state = store.displayState else { return "No active sessions" }
+        return "\(state.count) \(state.status.displayName.lowercased())"
+    }
 }
 
 private struct SessionRow: View {
@@ -234,9 +240,9 @@ private struct SessionRow: View {
             }
             Spacer(minLength: 12)
             HStack(spacing: 6) {
-                Circle()
-                    .fill(session.status.color)
-                    .frame(width: 7, height: 7)
+                AnimatedStatusIndicator(status: session.status)
+                    .frame(width: 9, height: 9)
+                    .accessibilityHidden(true)
                 Text(session.status.displayName)
             }
         }
@@ -247,14 +253,6 @@ private struct SessionRow: View {
 }
 
 private extension SessionStatus {
-    var color: Color {
-        switch self {
-        case .working: .yellow
-        case .waiting: .red
-        case .finished: .green
-        }
-    }
-
     var displayName: String {
         switch self {
         case .working: "Working"

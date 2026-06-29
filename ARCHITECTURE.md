@@ -84,6 +84,10 @@ borderless non-activating panel on the built-in display, positioned from
 for displays without a notch. The panel joins all Spaces and uses constrained
 hit testing so transparent areas do not intercept clicks.
 
+Status symbols use Core Animation so repeating Working and Waiting motion runs
+on the compositor without SwiftUI timers. Finished uses a one-shot checkmark
+animation. All symbols provide static variants when Reduce Motion is enabled.
+
 The menu-bar status item opens settings for launch-at-login, separate Waiting
 and Finished sound controls, volume, hook installation status, and the source
 repository.

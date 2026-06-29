@@ -3,12 +3,13 @@
 A personal macOS menu-bar app that shows the state of local Codex and Claude
 Code sessions around the MacBook notch.
 
-- Yellow: Working
-- Red: Waiting for input or permission
-- Green: Finished (shown for three seconds)
+- Yellow rotating ring: Working
+- Red pulsing beacon: Waiting for input or permission
+- Green checkmark pop: Finished (shown for three seconds)
 
 The right-side number counts sessions in the currently displayed state. Click
-the notch surface to expand a list of all active sessions.
+the notch surface to expand a list of all active sessions. When macOS Reduce
+Motion is enabled, each indicator uses a static equivalent.
 
 ## Requirements
 
