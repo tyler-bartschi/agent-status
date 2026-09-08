@@ -102,9 +102,10 @@ bar fixed against the screen edge. The whole panel fades when its final session
 expires. Only the lower panel corners are rounded. Global and local mouse
 monitors collapse it on outside clicks. Expanded rows expose a manual forget
 action; provider events are allowed to recreate forgotten sessions.
-The panel joins every Space as a fullscreen auxiliary window and is explicitly
-re-ordered when the active Space changes, including once after fullscreen
-transitions settle.
+The panel joins every Space and other applications' fullscreen Spaces as a
+fullscreen auxiliary window. Its screen-saver window level keeps it above
+fullscreen content, while active Space changes are explicitly re-ordered as an
+additional compatibility fallback.
 
 The menu-bar status item opens settings for launch-at-login, separate Waiting
 and Finished sound controls, volume, hook installation status, and the source

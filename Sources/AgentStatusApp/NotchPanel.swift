@@ -50,10 +50,12 @@ final class NotchPanelController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+        panel.isFloatingPanel = true
+        panel.level = .screenSaver
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [
             .canJoinAllSpaces,
+            .canJoinAllApplications,
             .fullScreenAuxiliary,
             .stationary,
             .ignoresCycle,
