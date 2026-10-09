@@ -29,7 +29,6 @@ final class NotchPanelController {
     private let model = NotchPresentationModel()
     private var cancellables = Set<AnyCancellable>()
     private var screenObserver: NSObjectProtocol?
-    private var activeSpaceObserver: NSObjectProtocol?
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var visibilityRevision: UInt64 = 0
@@ -95,16 +94,6 @@ final class NotchPanelController {
             }
         }
 
-        activeSpaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.refreshForActiveSpace()
-            }
-        }
-
         installDismissMonitors()
         updatePanel(sessions: store.sessions, expanded: false)
     }
@@ -115,10 +104,6 @@ final class NotchPanelController {
             NotificationCenter.default.removeObserver(screenObserver)
         }
         screenObserver = nil
-        if let activeSpaceObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(activeSpaceObserver)
-        }
-        activeSpaceObserver = nil
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
@@ -264,18 +249,6 @@ final class NotchPanelController {
         model.isExpanded = false
     }
 
-    private func refreshForActiveSpace() {
-        guard !store.sessions.isEmpty else { return }
-        updatePanel(sessions: store.sessions, expanded: model.isExpanded)
-        panel.orderFrontRegardless()
-
-        // Fullscreen Space transitions can finish after the workspace
-        // notification. Reassert once after the transition settles.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self, !self.store.sessions.isEmpty else { return }
-            self.panel.orderFrontRegardless()
-        }
-    }
 }
 
 @MainActor

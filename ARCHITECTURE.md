@@ -104,8 +104,9 @@ monitors collapse it on outside clicks. Expanded rows expose a manual forget
 action; provider events are allowed to recreate forgotten sessions.
 The panel joins every Space and other applications' fullscreen Spaces as a
 fullscreen auxiliary window. Its screen-saver window level keeps it above
-fullscreen content, while active Space changes are explicitly re-ordered as an
-additional compatibility fallback.
+fullscreen content. AppKit manages its Space membership; the app deliberately
+does not reorder the panel during fullscreen transitions because doing so can
+associate it with the outgoing Space.
 
 The menu-bar status item opens settings for launch-at-login, separate Waiting
 and Finished sound controls, volume, hook installation status, and the source
