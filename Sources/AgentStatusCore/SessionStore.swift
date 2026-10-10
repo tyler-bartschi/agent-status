@@ -22,6 +22,7 @@ public final class SessionStore: ObservableObject {
     private var revisions: [String: UInt64] = [:]
     private var aliases: [String: String] = [:]
     private var turnSessions: [TurnIdentity: String] = [:]
+    private var transcriptSessions: [TranscriptIdentity: String] = [:]
     private var lastActivityDates: [String: Date] = [:]
     private var processIDs: [String: Int32] = [:]
 
@@ -47,10 +48,26 @@ public final class SessionStore: ObservableObject {
     /// immediately without a completion transition.
     @discardableResult
     public func process(_ event: SessionEvent) -> Bool {
-        let sessionID = canonicalSessionID(for: event)
+        let originalSessionCount = sessions.count
+        let sessionID = canonicalSessionID(for: event, mergingDuplicates: true)
+        let mergedDuplicates = sessions.count != originalSessionCount
 
         guard lastEvents[sessionID] != event else {
-            return false
+            if mergedDuplicates {
+                publishAggregate()
+            }
+            return mergedDuplicates
+        }
+
+        let previousSession = sessions.first { $0.sessionID == sessionID }
+        if event.activity == .idle,
+           normalizedSourceEvent(event) == "sessionend",
+           previousSession?.status == .finished
+        {
+            if mergedDuplicates {
+                publishAggregate()
+            }
+            return mergedDuplicates
         }
 
         lastEvents[sessionID] = event
@@ -61,7 +78,6 @@ public final class SessionStore: ObservableObject {
         expiryTasks[sessionID]?.cancel()
         expiryTasks[sessionID] = nil
 
-        let previousSession = sessions.first { $0.sessionID == sessionID }
         let previousStatus = previousSession?.status
         let revision = nextRevision(for: sessionID)
 
@@ -70,7 +86,7 @@ public final class SessionStore: ObservableObject {
             lastActivityDates[sessionID] = nil
             processIDs[sessionID] = nil
             publishAggregate()
-            return changed
+            return mergedDuplicates || changed
         }
 
         let status = status(for: event.activity)
@@ -100,7 +116,7 @@ public final class SessionStore: ObservableObject {
             scheduleExpiry(for: session.sessionID, revision: revision)
         }
 
-        return session != previousSession
+        return mergedDuplicates || session != previousSession
     }
 
     public func session(id: String) -> AgentSession? {
@@ -122,6 +138,7 @@ public final class SessionStore: ObservableObject {
         processIDs[id] = nil
         aliases = aliases.filter { $0.value != id }
         turnSessions = turnSessions.filter { $0.value != id }
+        transcriptSessions = transcriptSessions.filter { $0.value != id }
 
         let changed = removeSession(id: id)
         publishAggregate()
@@ -173,34 +190,79 @@ public final class SessionStore: ObservableObject {
         }
     }
 
+    private func normalizedSourceEvent(_ event: SessionEvent) -> String? {
+        event.sourceEvent?
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+    }
+
     private func nextRevision(for sessionID: String) -> UInt64 {
         let next = (revisions[sessionID] ?? 0) &+ 1
         revisions[sessionID] = next
         return next
     }
 
-    private func canonicalSessionID(for event: SessionEvent) -> String {
-        let aliasKey = "\(event.host.rawValue):\(event.sessionID)"
+    private func canonicalSessionID(
+        for event: SessionEvent,
+        mergingDuplicates: Bool = false
+    ) -> String {
+        let provider = ProviderIdentity(host: event.host)
+        let aliasKey = "\(provider.rawValue):\(event.sessionID)"
         let existingAlias = aliases[aliasKey]
+        let transcriptIdentity = event.transcriptPath.map {
+            TranscriptIdentity(provider: provider, path: $0)
+        }
+        let existingTranscript = transcriptIdentity.flatMap { transcriptSessions[$0] }
+        let turnIdentity = event.turnID.map {
+            TurnIdentity(provider: provider, turnID: $0)
+        }
+        let existingTurn = turnIdentity.flatMap { turnSessions[$0] }
+        let canonicalID = existingTranscript ?? existingTurn ?? existingAlias ?? event.sessionID
 
-        if let turnID = event.turnID {
-            let identity = TurnIdentity(host: event.host, turnID: turnID)
-            if let existing = turnSessions[identity] {
-                aliases[aliasKey] = existing
-                return existing
+        if mergingDuplicates {
+            for duplicateID in Set([existingAlias, existingTranscript, existingTurn].compactMap { $0 })
+                where duplicateID != canonicalID
+            {
+                mergeSession(from: duplicateID, into: canonicalID)
             }
-            let canonicalID = existingAlias ?? event.sessionID
-            turnSessions[identity] = canonicalID
-            aliases[aliasKey] = canonicalID
-            return canonicalID
         }
 
-        if let existingAlias {
-            return existingAlias
+        aliases[aliasKey] = canonicalID
+        if let transcriptIdentity {
+            transcriptSessions[transcriptIdentity] = canonicalID
         }
+        if let turnIdentity {
+            turnSessions[turnIdentity] = canonicalID
+        }
+        return canonicalID
+    }
 
-        aliases[aliasKey] = event.sessionID
-        return event.sessionID
+    private func mergeSession(from duplicateID: String, into canonicalID: String) {
+        guard duplicateID != canonicalID else { return }
+
+        expiryTasks[duplicateID]?.cancel()
+        expiryTasks[duplicateID] = nil
+        removeSession(id: duplicateID)
+
+        aliases = aliases.mapValues { $0 == duplicateID ? canonicalID : $0 }
+        turnSessions = turnSessions.mapValues { $0 == duplicateID ? canonicalID : $0 }
+        transcriptSessions = transcriptSessions.mapValues { $0 == duplicateID ? canonicalID : $0 }
+
+        if let duplicateDate = lastActivityDates[duplicateID],
+           duplicateDate > (lastActivityDates[canonicalID] ?? .distantPast)
+        {
+            lastActivityDates[canonicalID] = duplicateDate
+        }
+        if processIDs[canonicalID] == nil {
+            processIDs[canonicalID] = processIDs[duplicateID]
+        }
+        revisions[canonicalID] = max(revisions[canonicalID] ?? 0, revisions[duplicateID] ?? 0)
+
+        lastEvents[duplicateID] = nil
+        lastActivityDates[duplicateID] = nil
+        processIDs[duplicateID] = nil
+        revisions[duplicateID] = nil
     }
 
     private func upsert(_ session: AgentSession) {
@@ -271,6 +333,25 @@ public final class SessionStore: ObservableObject {
 }
 
 private struct TurnIdentity: Hashable {
-    let host: HostApplication
+    let provider: ProviderIdentity
     let turnID: String
+}
+
+private struct TranscriptIdentity: Hashable {
+    let provider: ProviderIdentity
+    let path: String
+}
+
+private enum ProviderIdentity: String, Hashable {
+    case codex
+    case claude
+
+    init(host: HostApplication) {
+        switch host {
+        case .codexDesktop, .codexCLI:
+            self = .codex
+        case .claudeDesktop, .claudeCLI:
+            self = .claude
+        }
+    }
 }

@@ -212,6 +212,22 @@ struct SessionStoreTests {
         #expect(store.session(id: "one") == nil)
     }
 
+    @Test func sessionEndDoesNotCutShortAnActiveFinishedFlash() async {
+        let sleeper = ManualSleeper()
+        let store = makeStore(sleeper: sleeper)
+
+        store.process(event("one", activity: .finished, sourceEvent: "Stop"))
+        await sleeper.waitForPendingCount(1)
+
+        #expect(!store.process(event("one", activity: .idle, sourceEvent: "SessionEnd")))
+        #expect(store.session(id: "one")?.status == .finished)
+
+        sleeper.resumeAll()
+        await settleTasks()
+
+        #expect(store.session(id: "one") == nil)
+    }
+
     @Test func idleImmediatelyRemovesSessionWithoutCompletionCallback() {
         var transitions: [SessionTransition] = []
         let store = SessionStore { transitions.append($0) }
@@ -248,6 +264,96 @@ struct SessionStoreTests {
         #expect(store.sessions.count == 1)
         #expect(store.sessions.first?.status == .finished)
         #expect(store.displayState == AggregateDisplayState(status: .finished, count: 1))
+    }
+
+    @Test func sameTurnIsCoalescedWhenHostSurfaceDetectionChanges() {
+        let store = SessionStore()
+
+        store.process(event("desktop-id", host: .codexDesktop, activity: .working, turnID: "turn-1"))
+        store.process(event("cli-id", host: .codexCLI, activity: .waiting, turnID: "turn-1"))
+
+        #expect(store.sessions.count == 1)
+        #expect(store.sessions.first?.status == .waiting)
+        #expect(store.displayState == AggregateDisplayState(status: .waiting, count: 1))
+    }
+
+    @Test func transcriptIdentityCoalescesChangingProviderSessionIDs() {
+        let store = SessionStore()
+
+        store.process(
+            event(
+                "first-id",
+                activity: .working,
+                turnID: "turn-1",
+                transcriptPath: "/tmp/conversation.jsonl"
+            )
+        )
+        store.process(
+            event(
+                "second-id",
+                activity: .finished,
+                turnID: "turn-2",
+                transcriptPath: "/tmp/conversation.jsonl"
+            )
+        )
+
+        #expect(store.sessions.count == 1)
+        #expect(store.sessions.first?.sessionID == "first-id")
+        #expect(store.sessions.first?.status == .finished)
+        #expect(store.displayState == AggregateDisplayState(status: .finished, count: 1))
+    }
+
+    @Test func transcriptIdentityDoesNotMergeDifferentProviders() {
+        let store = SessionStore()
+
+        store.process(
+            event(
+                "codex-id",
+                host: .codexDesktop,
+                activity: .working,
+                transcriptPath: "/tmp/shared-name.jsonl"
+            )
+        )
+        store.process(
+            event(
+                "claude-id",
+                host: .claudeDesktop,
+                activity: .working,
+                transcriptPath: "/tmp/shared-name.jsonl"
+            )
+        )
+
+        #expect(store.sessions.count == 2)
+        #expect(store.displayState == AggregateDisplayState(status: .working, count: 2))
+    }
+
+    @Test func transcriptIdentityMergesRowsThatWereAlreadyTrackedSeparately() {
+        let store = SessionStore()
+
+        store.process(event("first-id", activity: .working, turnID: "turn-1"))
+        store.process(event("second-id", activity: .waiting, turnID: "turn-2"))
+        #expect(store.sessions.count == 2)
+
+        store.process(
+            event(
+                "first-id",
+                activity: .working,
+                turnID: "turn-3",
+                transcriptPath: "/tmp/conversation.jsonl"
+            )
+        )
+        store.process(
+            event(
+                "second-id",
+                activity: .working,
+                turnID: "turn-4",
+                transcriptPath: "/tmp/conversation.jsonl"
+            )
+        )
+
+        #expect(store.sessions.count == 1)
+        #expect(store.sessions.first?.sessionID == "first-id")
+        #expect(store.displayState == AggregateDisplayState(status: .working, count: 1))
     }
 
     @Test func differentTurnsInTheSameHostRemainDistinctSessions() {
@@ -393,39 +499,6 @@ struct SessionStoreTests {
         #expect(store.session(id: "claude")?.status == .finished)
     }
 
-    @Test func questionLikeStopIsCancelledBySessionEnd() async {
-        let sleeper = ManualSleeper()
-        var transitions: [SessionTransition] = []
-        let store = SessionStore { transitions.append($0) }
-        let coordinator = SessionEventCoordinator(
-            store: store,
-            sleep: { duration in try await sleeper.sleep(for: duration) }
-        )
-        coordinator.receive(
-            event(
-                "claude",
-                host: .claudeCLI,
-                activity: .waiting,
-                sourceEvent: "Stop"
-            )
-        )
-        await sleeper.waitForPendingCount(1)
-
-        coordinator.receive(
-            event(
-                "claude",
-                host: .claudeCLI,
-                activity: .ended,
-                sourceEvent: "SessionEnd"
-            )
-        )
-        sleeper.resumeAll()
-        await settleTasks()
-
-        #expect(store.session(id: "claude")?.status == .finished)
-        #expect(transitions.map(\.status) == [.finished])
-    }
-
     private func makeStore(
         sleeper: ManualSleeper,
         onTransition: SessionStore.TransitionHandler? = nil
@@ -443,6 +516,7 @@ struct SessionStoreTests {
         name: String? = nil,
         activity: SessionEvent.Activity,
         turnID: String? = nil,
+        transcriptPath: String? = nil,
         processID: Int32? = nil,
         sourceEvent: String? = nil
     ) -> SessionEvent {
@@ -452,6 +526,7 @@ struct SessionStoreTests {
             name: name,
             activity: activity,
             turnID: turnID,
+            transcriptPath: transcriptPath,
             processID: processID,
             sourceEvent: sourceEvent
         )

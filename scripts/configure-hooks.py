@@ -18,7 +18,9 @@ CODEX_EVENTS = (
     "PreCompact",
     "PreToolUse",
     "SessionStart",
+    "SessionEnd",
     "Stop",
+    "Interrupt",
     "UserPromptSubmit",
 )
 CLAUDE_EVENTS = (
@@ -63,15 +65,37 @@ def is_owned(handler):
     return OWNER_ARGUMENT in str(handler.get("command", "")).split()
 
 
-def owned_group(command, provider):
+def owned_group(command, provider, event):
     handler = {
         "type": "command",
         "command": command,
-        "timeout": 5,
+        "timeout": 3
+        if provider == "codex" and event in ("Interrupt", "SessionEnd")
+        else 5,
     }
-    if provider == "claude":
-        handler["async"] = True
     return {"hooks": [handler]}
+
+
+def without_owned_handlers(groups):
+    remaining_groups = []
+    for group in groups:
+        if not isinstance(group, dict):
+            remaining_groups.append(group)
+            continue
+        handlers = group.get("hooks")
+        if not isinstance(handlers, list):
+            remaining_groups.append(group)
+            continue
+        remaining_handlers = [
+            handler
+            for handler in handlers
+            if not isinstance(handler, dict) or not is_owned(handler)
+        ]
+        if remaining_handlers:
+            updated = dict(group)
+            updated["hooks"] = remaining_handlers
+            remaining_groups.append(updated)
+    return remaining_groups
 
 
 def hook_map(root):
@@ -92,17 +116,8 @@ def install_provider(provider, home, command):
     for event in events:
         groups = hooks.get(event)
         groups = groups if isinstance(groups, list) else []
-        already_installed = any(
-            isinstance(group, dict)
-            and any(
-                is_owned(handler)
-                for handler in group.get("hooks", [])
-                if isinstance(handler, dict)
-            )
-            for group in groups
-        )
-        if not already_installed:
-            groups.append(owned_group(command, provider))
+        groups = without_owned_handlers(groups)
+        groups.append(owned_group(command, provider, event))
         hooks[event] = groups
 
     root["hooks"] = hooks

@@ -2,10 +2,9 @@ import Foundation
 
 /// Orders provider events before they enter the session state machine.
 ///
-/// Providers can emit an idle/input Notification or question-like Stop shortly
-/// before a terminal completion event. Debouncing those ambiguous Waiting
-/// events avoids a transient state and sound while still surfacing genuine
-/// input requests after a short delay.
+/// Providers can emit an input Notification shortly before a terminal event.
+/// Debouncing that ambiguous Waiting event avoids a transient state and sound
+/// while still surfacing genuine input requests after a short delay.
 @MainActor
 public final class SessionEventCoordinator {
     public typealias Sleep = @Sendable (Duration) async throws -> Void
@@ -74,6 +73,6 @@ public final class SessionEventCoordinator {
             .lowercased()
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
-        return ["notification", "stop", "stopfailure"].contains(normalizedEvent)
+        return normalizedEvent == "notification"
     }
 }

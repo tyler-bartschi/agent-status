@@ -63,11 +63,10 @@ public struct HookInstaller {
 
         for event in events(for: provider) {
             var groups = hookMap[event] as? [[String: Any]] ?? []
-            if !containsOwnedHandler(in: groups) {
-                groups.append([
-                    "hooks": [handler(command: command, provider: provider)]
-                ])
-            }
+            groups = removingOwnedHandlers(from: groups)
+            groups.append([
+                "hooks": [handler(command: command, provider: provider, event: event)]
+            ])
             hookMap[event] = groups
         }
 
@@ -131,11 +130,16 @@ public struct HookInstaller {
 
         let root = try readObject(at: url)
         let hookMap = hooks(in: root, for: provider)
+        let command = hookCommand(for: provider)
         return events(for: provider).allSatisfy { event in
             guard let groups = hookMap[event] as? [[String: Any]] else {
                 return false
             }
-            return containsOwnedHandler(in: groups)
+            return containsCurrentHandler(
+                in: groups,
+                command: command,
+                expectedTimeout: timeout(for: event, provider: provider)
+            )
         }
     }
 
@@ -175,22 +179,29 @@ public struct HookInstaller {
         return "'\(escapedPath)' --provider \(provider.rawValue) \(Self.ownershipArgument)"
     }
 
-    private func handler(command: String, provider: HookProvider) -> [String: Any] {
+    private func handler(
+        command: String,
+        provider: HookProvider,
+        event: String
+    ) -> [String: Any] {
         switch provider {
         case .codex:
             [
                 "type": "command",
                 "command": command,
-                "timeout": 5
+                "timeout": timeout(for: event, provider: provider)
             ]
         case .claude:
             [
                 "type": "command",
                 "command": command,
-                "async": true,
-                "timeout": 5
+                "timeout": timeout(for: event, provider: provider)
             ]
         }
+    }
+
+    private func timeout(for event: String, provider: HookProvider) -> Int {
+        provider == .codex && (event == "Interrupt" || event == "SessionEnd") ? 3 : 5
     }
 
     private func events(for provider: HookProvider) -> [String] {
@@ -198,7 +209,8 @@ public struct HookInstaller {
         case .codex:
             [
                 "PermissionRequest", "PostCompact", "PostToolUse", "PreCompact",
-                "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"
+                "PreToolUse", "SessionStart", "SessionEnd", "Stop", "Interrupt",
+                "UserPromptSubmit"
             ]
         case .claude:
             [
@@ -210,12 +222,35 @@ public struct HookInstaller {
         }
     }
 
-    private func containsOwnedHandler(in groups: [[String: Any]]) -> Bool {
-        groups.contains { group in
+    private func containsCurrentHandler(
+        in groups: [[String: Any]],
+        command: String,
+        expectedTimeout: Int
+    ) -> Bool {
+        let ownedHandlers = groups.flatMap { group in
+            (group["hooks"] as? [[String: Any]] ?? []).filter(isOwnedHandler)
+        }
+        guard ownedHandlers.count == 1, let handler = ownedHandlers.first else {
+            return false
+        }
+        return handler["type"] as? String == "command"
+            && handler["command"] as? String == command
+            && handler["timeout"] as? Int == expectedTimeout
+            && handler["async"] as? Bool != true
+    }
+
+    private func removingOwnedHandlers(from groups: [[String: Any]]) -> [[String: Any]] {
+        groups.compactMap { group in
+            var group = group
             guard let handlers = group["hooks"] as? [[String: Any]] else {
-                return false
+                return group
             }
-            return handlers.contains(where: isOwnedHandler)
+            let remainingHandlers = handlers.filter { !isOwnedHandler($0) }
+            guard !remainingHandlers.isEmpty else {
+                return nil
+            }
+            group["hooks"] = remainingHandlers
+            return group
         }
     }
 

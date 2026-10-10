@@ -24,22 +24,22 @@ class HookAdapterTests(unittest.TestCase):
         self.assertEqual(HOOK.activity_for("UserPromptSubmit", {}), "working")
         self.assertEqual(HOOK.activity_for("PreToolUse", {}), "working")
         self.assertEqual(HOOK.activity_for("PermissionRequest", {}), "waiting")
-        self.assertEqual(
-            HOOK.activity_for("Notification", {"notification_type": "idle_prompt"}),
-            "working",
+        self.assertIsNone(
+            HOOK.activity_for("Notification", {"notification_type": "idle_prompt"})
         )
         self.assertEqual(HOOK.activity_for("Stop", {}), "finished")
-        self.assertEqual(HOOK.activity_for("SessionEnd", {}), "ended")
+        self.assertEqual(HOOK.activity_for("Interrupt", {}), "ended")
+        self.assertEqual(HOOK.activity_for("SessionEnd", {}), "idle")
 
-    def test_stop_question_waits_for_input(self):
+    def test_stop_question_is_still_a_completed_turn(self):
         payload = {"last_assistant_message": "Which option should I use?"}
-        self.assertEqual(HOOK.activity_for("Stop", payload, "codex"), "waiting")
+        self.assertEqual(HOOK.activity_for("Stop", payload, "codex"), "finished")
 
-    def test_stop_question_with_following_choices_waits_for_input(self):
+    def test_stop_question_with_following_choices_is_finished(self):
         payload = {
             "last_assistant_message": "Which option should I use?\n1. Fast\n2. Thorough"
         }
-        self.assertEqual(HOOK.activity_for("Stop", payload, "codex"), "waiting")
+        self.assertEqual(HOOK.activity_for("Stop", payload, "codex"), "finished")
 
     def test_stop_completed_statement_finishes(self):
         payload = {"last_assistant_message": "Implementation and tests are complete."}
@@ -63,6 +63,32 @@ class HookAdapterTests(unittest.TestCase):
             "waiting",
         )
 
+    def test_unrecognized_notification_does_not_change_status(self):
+        payload = {"notification_type": "informational"}
+        self.assertIsNone(HOOK.activity_for("Notification", payload, "claude"))
+
+    def test_notification_substrings_do_not_change_status(self):
+        for notification_type in ("idle_timeout_warning", "input_too_long"):
+            with self.subTest(notification_type=notification_type):
+                payload = {"notification_type": notification_type}
+                self.assertIsNone(
+                    HOOK.activity_for("Notification", payload, "claude")
+                )
+
+    def test_known_input_notification_types_wait(self):
+        for notification_type in (
+            "permission_prompt",
+            "elicitation_dialog",
+            "input_required",
+            "approval_required",
+        ):
+            with self.subTest(notification_type=notification_type):
+                payload = {"notification_type": notification_type}
+                self.assertEqual(
+                    HOOK.activity_for("Notification", payload, "claude"),
+                    "waiting",
+                )
+
     def test_terminal_app_does_not_make_cli_a_desktop_session(self):
         with mock.patch.object(
             HOOK,
@@ -85,6 +111,7 @@ class HookAdapterTests(unittest.TestCase):
             "hook_event_name": "UserPromptSubmit",
             "session_id": "session-1",
             "turn_id": "turn-1",
+            "transcript_path": "/tmp/transcript.jsonl",
             "cwd": "/tmp/project",
         }
         with mock.patch.object(sys, "stdin", io.StringIO(json.dumps(payload))):
@@ -103,6 +130,7 @@ class HookAdapterTests(unittest.TestCase):
 
         normalized = send_event.call_args.args[0]
         self.assertEqual(normalized["turnID"], "turn-1")
+        self.assertEqual(normalized["transcriptPath"], "/tmp/transcript.jsonl")
         self.assertEqual(normalized["workingDirectory"], "/tmp/project")
         self.assertEqual(normalized["processID"], 123)
         self.assertEqual(normalized["sourceEvent"], "UserPromptSubmit")

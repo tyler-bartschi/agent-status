@@ -32,6 +32,7 @@ struct SessionModelsTests {
                 name: "Named",
                 activity: .working,
                 turnID: "turn-1",
+                transcriptPath: "/tmp/transcript.jsonl",
                 workingDirectory: "/tmp/project",
                 processID: 42,
                 sourceEvent: "UserPromptSubmit"

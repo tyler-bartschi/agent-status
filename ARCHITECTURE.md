@@ -40,7 +40,7 @@ SessionEventServer
         v
 SessionStore (@MainActor)
   - per-session state and revision
-  - turn-based alias coalescing
+  - transcript- and turn-based alias coalescing
   - Finished expiry
   - priority aggregation
         |
@@ -60,8 +60,12 @@ The displayed status is the highest-priority status currently present:
 The displayed count includes only sessions in that status. A Finished session
 is removed after three seconds unless a newer event changes its revision.
 Transition audio is emitted per session, not per aggregate display change.
-Ambiguous idle/question events are briefly debounced so a following completion
+Ambiguous input notifications are briefly debounced so a following completion
 event does not produce a transient Waiting state or tone.
+Codex `Stop` and `Interrupt` events flash Finished and then expire the
+conversation. `SessionEnd` is cleanup-only so a delayed close or idle timeout
+cannot recreate an already-finished conversation. Question marks in final
+response text are not treated as approval requests.
 Claude Code `Stop` and `idle_prompt` events are terminal turn events and map to
 Finished; the CLI process does not need to exit. Explicit permission and
 input-required notifications map to Waiting.
@@ -81,9 +85,10 @@ CLI versus desktop from its process ancestry. Claude desktop support uses the
 same adapter when the desktop product invokes compatible local agent hooks;
 the app does not infer conversation state from process existence alone.
 
-Hook installers merge only Agent Status entries and preserve unrelated user
-configuration. Codex requires the user to review and trust newly installed
-non-managed hooks.
+Hook installers replace only Agent Status-owned entries and preserve unrelated
+user configuration. Provider callbacks use ordered delivery so older events
+cannot overwrite a newer lifecycle state. Codex requires the user to review
+and trust newly installed non-managed hooks.
 
 ## macOS shell
 

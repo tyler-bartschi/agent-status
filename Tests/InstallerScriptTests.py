@@ -64,6 +64,70 @@ class InstallerScriptTests(unittest.TestCase):
                     if HOOKS.is_owned(handler)
                 ]
                 self.assertEqual(len(owned), 1)
+            self.assertIn("Interrupt", value["hooks"])
+            self.assertIn("SessionEnd", value["hooks"])
+            for event in ("Interrupt", "SessionEnd"):
+                owned = [
+                    handler
+                    for group in value["hooks"][event]
+                    for handler in group.get("hooks", [])
+                    if HOOKS.is_owned(handler)
+                ]
+                self.assertEqual(owned[0]["timeout"], 3)
+
+    def test_reinstall_updates_claude_handler_to_ordered_delivery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = pathlib.Path(directory)
+            source = home / "source-hook.py"
+            source.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            config = home / ".claude" / "settings.json"
+            config.parent.mkdir()
+            command = "agent-status-hook.py --provider claude {}".format(
+                HOOKS.OWNER_ARGUMENT
+            )
+            config.write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "Stop": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": command,
+                                            "async": True,
+                                            "timeout": 5,
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            HOOKS.main(
+                [
+                    "install",
+                    "--provider",
+                    "claude",
+                    "--hook",
+                    str(source),
+                    "--home",
+                    str(home),
+                ]
+            )
+
+            value = json.loads(config.read_text(encoding="utf-8"))
+            owned = [
+                handler
+                for group in value["hooks"]["Stop"]
+                for handler in group.get("hooks", [])
+                if HOOKS.is_owned(handler)
+            ]
+            self.assertEqual(len(owned), 1)
+            self.assertNotIn("async", owned[0])
 
     def test_uninstall_removes_only_owned_handlers(self):
         with tempfile.TemporaryDirectory() as directory:

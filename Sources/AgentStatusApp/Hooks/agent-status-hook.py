@@ -103,17 +103,11 @@ def first_string(payload, keys):
 def activity_for(event, payload, provider=None):
     normalized = event.lower().replace("_", "").replace("-", "")
     if normalized in ("stop", "stopfailure"):
-        if provider == "claude":
-            return "finished"
-        final_message = first_string(
-            payload,
-            ("last_assistant_message", "lastAssistantMessage"),
-        )
-        if final_message and "?" in final_message[-2000:]:
-            return "waiting"
         return "finished"
-    if normalized == "sessionend":
+    if normalized == "interrupt":
         return "ended"
+    if normalized == "sessionend":
+        return "idle"
     if normalized == "permissionrequest":
         return "waiting"
     if normalized == "notification":
@@ -122,12 +116,17 @@ def activity_for(event, payload, provider=None):
             or payload.get("notificationType")
             or payload.get("type")
             or ""
-        ).lower()
-        if provider == "claude" and "idle" in notification:
+        ).lower().replace("_", "").replace("-", "")
+        if provider == "claude" and notification == "idleprompt":
             return "finished"
-        if any(word in notification for word in ("input", "permission", "approval")):
+        if notification in (
+            "permissionprompt",
+            "elicitationdialog",
+            "inputrequired",
+            "approvalrequired",
+        ):
             return "waiting"
-        return "working"
+        return None
     if normalized == "sessionstart":
         source = str(payload.get("source") or "").lower()
         if source == "compact":
@@ -212,6 +211,12 @@ def main():
         turn_id = first_string(payload, ("turn_id", "turnId"))
         if turn_id:
             normalized["turnID"] = turn_id
+        transcript_path = first_string(
+            payload,
+            ("transcript_path", "transcriptPath"),
+        )
+        if transcript_path:
+            normalized["transcriptPath"] = transcript_path
         working_directory = first_string(
             payload,
             ("cwd", "working_directory", "workingDirectory"),

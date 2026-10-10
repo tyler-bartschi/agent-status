@@ -100,6 +100,12 @@ input-required events remain Waiting. Automatic and manual context compaction
 (`PreCompact`, `PostCompact`, and `SessionStart` with source `compact`) are
 maintenance events and do not change the displayed status.
 
+For Codex, an explicit permission request is Waiting. `Stop` and `Interrupt`
+flash Finished and then remove the conversation after three seconds;
+`SessionEnd` only clears any remaining state. Transcript and turn identities
+coalesce repeated provider identifiers so one conversation contributes at most
+one tracked status.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and operational details.
 
 Inspired by [TeamNoSleepz/notch-agent](https://github.com/TeamNoSleepz/notch-agent);

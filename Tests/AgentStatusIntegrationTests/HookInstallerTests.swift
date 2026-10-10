@@ -27,6 +27,11 @@ struct HookInstallerTests {
             let hooks = try #require(root["hooks"] as? [String: Any])
             let stopGroups = try #require(hooks["Stop"] as? [[String: Any]])
             #expect(stopGroups.count == 2)
+            #expect(hooks["Interrupt"] != nil)
+            #expect(hooks["SessionEnd"] != nil)
+            #expect(fixture.ownedTimeout(for: "Interrupt", in: hooks) == 3)
+            #expect(fixture.ownedTimeout(for: "SessionEnd", in: hooks) == 3)
+            #expect(fixture.ownedTimeout(for: "Stop", in: hooks) == 5)
             #expect(fixture.ownedHandlerCount(in: hooks) == fixture.codexEventCount)
             #expect(try fixture.installer.isInstalled(.codex))
         }
@@ -61,6 +66,63 @@ struct HookInstallerTests {
         }
     }
 
+    @Test func claudeReinstallReplacesAsyncOwnedHandlerWithOrderedHandler() throws {
+        try withFixture { fixture in
+            let config = fixture.home.appendingPathComponent(".claude/settings.json")
+            try fixture.writeJSON([
+                "hooks": [
+                    "Stop": [[
+                        "hooks": [[
+                            "type": "command",
+                            "command": "old-hook \(HookInstaller.ownershipArgument)",
+                            "async": true,
+                            "timeout": 5
+                        ]]
+                    ]]
+                ]
+            ], to: config)
+
+            #expect(try !fixture.installer.isInstalled(.claude))
+            try fixture.installer.install(.claude)
+            #expect(try fixture.installer.isInstalled(.claude))
+
+            let root = try fixture.readJSON(config)
+            let hooks = try #require(root["hooks"] as? [String: Any])
+            let stopGroups = try #require(hooks["Stop"] as? [[String: Any]])
+            let ownedHandlers = stopGroups.flatMap { group in
+                (group["hooks"] as? [[String: Any]] ?? []).filter {
+                    ($0["command"] as? String)?.contains(HookInstaller.ownershipArgument) == true
+                }
+            }
+            let handler = try #require(ownedHandlers.only)
+            #expect(handler["async"] == nil)
+            #expect(handler["timeout"] as? Int == 5)
+        }
+    }
+
+    @Test func duplicateOwnedHandlersAreReportedAsOutdatedAndDeduplicated() throws {
+        try withFixture { fixture in
+            try fixture.installer.install(.codex)
+            let config = fixture.home.appendingPathComponent(".codex/hooks.json")
+            var root = try fixture.readJSON(config)
+            var hooks = try #require(root["hooks"] as? [String: Any])
+            var stopGroups = try #require(hooks["Stop"] as? [[String: Any]])
+            stopGroups.append(try #require(stopGroups.last))
+            hooks["Stop"] = stopGroups
+            root["hooks"] = hooks
+            try fixture.writeJSON(root, to: config)
+
+            #expect(try !fixture.installer.isInstalled(.codex))
+
+            try fixture.installer.install(.codex)
+
+            #expect(try fixture.installer.isInstalled(.codex))
+            let updatedRoot = try fixture.readJSON(config)
+            let updatedHooks = try #require(updatedRoot["hooks"] as? [String: Any])
+            #expect(fixture.ownedHandlerCount(for: "Stop", in: updatedHooks) == 1)
+        }
+    }
+
     private func withFixture(_ body: (Fixture) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-status-tests-\(UUID().uuidString)", isDirectory: true)
@@ -77,10 +139,16 @@ struct HookInstallerTests {
     }
 }
 
+private extension Collection {
+    var only: Element? {
+        count == 1 ? first : nil
+    }
+}
+
 private struct Fixture {
     let home: URL
     let installer: HookInstaller
-    let codexEventCount = 8
+    let codexEventCount = 10
 
     init(home: URL, hook: URL) {
         self.home = home
@@ -111,5 +179,24 @@ private struct Fixture {
                 }.count
             }
         }
+    }
+
+    func ownedHandlerCount(for event: String, in hookMap: [String: Any]) -> Int {
+        guard let groups = hookMap[event] as? [[String: Any]] else { return 0 }
+        return groups.reduce(into: 0) { total, group in
+            guard let handlers = group["hooks"] as? [[String: Any]] else { return }
+            total += handlers.filter {
+                ($0["command"] as? String)?.contains(HookInstaller.ownershipArgument) == true
+            }.count
+        }
+    }
+
+    func ownedTimeout(for event: String, in hookMap: [String: Any]) -> Int? {
+        guard let groups = hookMap[event] as? [[String: Any]] else { return nil }
+        return groups
+            .flatMap { $0["hooks"] as? [[String: Any]] ?? [] }
+            .first {
+                ($0["command"] as? String)?.contains(HookInstaller.ownershipArgument) == true
+            }?["timeout"] as? Int
     }
 }
